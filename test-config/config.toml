@@ -1,0 +1,16 @@
+[[server]]
+bind = "127.0.0.1:8089"
+root = "./www"
+threads = 2
+cache_enabled = true
+cache_ttl = "1h"
+upload_max_size = "10MB"
+directory_listing = true
+
+[[server.rewrite]]
+from = "^/hello$"
+to = "/index.html"
+
+[[server.location]]
+path = "/api"
+proxy_pass = "http://httpbin.org"

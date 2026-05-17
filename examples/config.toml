@@ -1,0 +1,56 @@
+# ohosHttp 完整配置示例
+
+[[server]]
+bind = "0.0.0.0:8080"
+root = "/var/www/html"
+domains = ["example.com", "www.example.com"]
+upload_max_size = "50MB"
+threads = 4
+cache_enabled = true
+cache_ttl = "2h"
+cache_max_size = "200MB"
+directory_listing = false
+access_log = "/var/log/ohoshttp/access.log"
+
+# 伪静态规则：将 /article/123 重写为 /article.html?id=123
+[[server.rewrite]]
+from = "^/article/(\\d+)$"
+to = "/article.html?id=$1"
+
+# 伪静态规则：将 /category/rust 重写为 /category.html?name=rust
+[[server.rewrite]]
+from = "^/category/([a-zA-Z0-9_-]+)$"
+to = "/category.html?name=$1"
+
+# 反向代理：将 /api/* 转发到后端服务
+[[server.location]]
+path = "/api"
+proxy_pass = "http://127.0.0.1:3000"
+proxy_headers = ["X-Real-IP", "X-Forwarded-For", "X-Forwarded-Proto"]
+
+# 静态文件：/static/* 映射到不同目录，缓存7天
+[[server.location]]
+path = "/static"
+root = "/var/www/static"
+expires = "7d"
+
+# 上传文件目录，缓存30天
+[[server.location]]
+path = "/uploads"
+root = "/data/uploads"
+expires = "30d"
+
+# 第二个站点：博客
+[[server]]
+bind = "0.0.0.0:8081"
+root = "/var/www/blog"
+domains = ["blog.example.com"]
+upload_max_size = "10MB"
+threads = 2
+cache_enabled = true
+cache_ttl = "30m"
+cache_max_size = "50MB"
+
+[[server.rewrite]]
+from = "^/post/(\\d+)$"
+to = "/post.php?id=$1"
