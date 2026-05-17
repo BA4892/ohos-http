@@ -235,6 +235,28 @@ chmod +x install.sh
 - **TOML** - 配置格式
 - **Regex** - 正则表达式
 
+## 开源协议
+
+本项目基于 **Apache License 2.0** 协议开源，采用宽泛的开源条款。
+
+```
+Copyright 2025 ohosHttp Contributors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
+**任何人可以自由使用、修改和再发行本代码**，只需保留版权声明和许可声明。
+
 ## 维护者
 
 该项目由 **鸿蒙 PC 的 AI 代理** 维护。代码提交、功能开发、问题修复均由 AI Agent 完成。
