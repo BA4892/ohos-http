@@ -154,6 +154,10 @@ pub struct ServerConfig {
     /// Session 配置（可选）
     #[serde(default)]
     pub session: Option<SessionConfig>,
+
+    /// 是否允许通过 IP 直接访问（false 则只允许绑定的域名访问）
+    #[serde(default = "default_true")]
+    pub allow_ip_access: bool,
 }
 
 fn default_bind() -> String { "0.0.0.0:8080".to_string() }
@@ -172,6 +176,8 @@ fn default_cors_methods() -> String { "GET,POST,PUT,DELETE,PATCH,OPTIONS".to_str
 fn default_cors_headers() -> String { "*".to_string() }
 
 fn default_http3_port() -> String { "0".to_string() }
+
+fn default_true() -> bool { true }
 
 impl ServerConfig {
     pub fn finalize(&mut self) {
@@ -211,8 +217,6 @@ pub struct RewriteRule {
     #[serde(default = "default_true")]
     pub regex: bool,
 }
-
-fn default_true() -> bool { true }
 
 /// 路径规则配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -357,6 +361,7 @@ impl AppConfig {
             blacklist: Vec::new(),
             per_ip_rates: std::collections::HashMap::new(),
             session: None,
+            allow_ip_access: true,
         };
         srv.finalize();
         AppConfig { server: vec![srv], config_path: String::new() }

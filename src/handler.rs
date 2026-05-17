@@ -181,6 +181,23 @@ impl RequestHandler {
             }
         }
 
+        // 检查是否禁止 IP 直接访问
+        if !self.config.allow_ip_access && !self.config.domains.is_empty() {
+            let host_header = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
+            let hostname = host_header.split(':').next().unwrap_or(host_header);
+            if !self.config.domains.iter().any(|d| d == hostname) {
+                let resp = error_response(403, "Forbidden: Direct IP access is not allowed");
+                let (mut parts, body) = resp.into_parts();
+                self.add_cors_headers(&mut parts.headers);
+                if let Some(logger) = &self.access_logger {
+                    let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("-");
+                    let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("-");
+                    logger.log(remote_addr, method.as_str(), path, 403, 0, referer, ua, 0);
+                }
+                return Ok(Response::from_parts(parts, body));
+            }
+        }
+
         // Session cookie handling
         if let Some(store) = &self.session_store {
             store.cleanup();

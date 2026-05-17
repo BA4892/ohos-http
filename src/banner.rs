@@ -43,6 +43,7 @@ pub fn print_startup_banner(configs: &[ServerConfig]) {
         if !cfg.domains.is_empty() {
             println!("  │   域名        │  {:<47}│", cfg.domains.join(", "));
         }
+        println!("  │   IP直连     │  {:<47}│", if cfg.allow_ip_access { "允许" } else { "仅域名" });
         println!("  │   工作线程    │  {:<47}│", cfg.threads);
         println!("  │   上传大小    │  {:<47}│", cfg.upload_max_size);
         println!("  │   缓存        │  {:<47}│", cache_status);

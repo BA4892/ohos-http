@@ -540,6 +540,37 @@ ohosHttp 完整支持以下 HTTP 方法：
 
 ---
 
+## IP 直接访问控制
+
+ohosHttp 支持禁止 IP 直接访问站点，只允许通过绑定的域名访问。
+
+### 配置方式
+
+在站点配置中设置 `allow_ip_access` 为 `false`：
+
+```toml
+[[server]]
+bind = "0.0.0.0:443"
+root = "/var/www/html"
+domains = ["example.com", "www.example.com"]
+allow_ip_access = false
+```
+
+### 工作原理
+
+- `allow_ip_access = true`（默认）：允许通过 IP 地址直接访问
+- `allow_ip_access = false`：检查请求的 `Host` 头是否匹配配置的 `domains` 列表
+- 匹配失败时返回 **403 Forbidden**，提示 "Direct IP access is not allowed"
+- Host 头中的端口号会被自动忽略（例如 `Host: example.com:8080` 仍能正常匹配）
+
+### 使用场景
+
+- 防止恶意用户直接扫描 IP 地址绕过域名防火墙
+- 多个虚拟主机共享同一 IP 时，确保每个站点只能通过其域名访问
+- 配合 CDN 或反向代理使用时，限制只有已知域名才能回源
+
+---
+
 ## 限流与安全
 
 ohosHttp 提供基于令牌桶的 IP 限流器，支持黑名单和按 IP 自定义速率。
