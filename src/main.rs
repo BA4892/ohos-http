@@ -18,7 +18,7 @@ use tokio::sync::watch;
 #[derive(Parser, Debug)]
 #[command(name = "ohosHttp")]
 #[command(about = "ohosHttp - 高性能HTTP服务器", long_about = None)]
-#[command(version = "1.0.0")]
+#[command(version = "1.1.0")]
 struct CliArgs {
     /// 绑定地址，如 "127.0.0.1:8089"
     #[arg(short = 'a', long = "addr", default_value = "")]
@@ -143,7 +143,7 @@ fn load_config(args: &CliArgs) -> config::AppConfig {
         cfg
     } else {
         // 默认启动方式
-        eprintln!("ohosHttp 1.0.0");
+        eprintln!("ohosHttp 1.1.0");
         eprintln!("用法:");
         eprintln!("  ohosHttp -a 127.0.0.1:8089 -r ./www          # 快速启动");
         eprintln!("  ohosHttp -c config.toml                        # 从配置文件启动");

@@ -49,6 +49,14 @@
 
 ## 快速开始
 
+### 方式0：一键安装（推荐）
+
+```bash
+# 下载并一键安装
+chmod +x install.sh
+./install.sh
+```
+
 ### 方式1：命令行快速启动
 
 ```bash
@@ -176,6 +184,7 @@ ohos-http/
 ├── USAGE.md              # 完整使用文档
 ├── Cargo.toml            # 项目配置和依赖
 ├── build.sh              # 构建脚本
+├── install.sh            # 鸿蒙系统一键安装脚本
 ├── www/                  # 默认网站根目录
 └── src/
     ├── main.rs           # 入口和 CLI 参数解析
@@ -184,7 +193,11 @@ ohos-http/
     ├── server.rs         # HTTP 服务器核心
     ├── handler.rs        # 请求处理（静态文件、上传、CGI）
     ├── proxy.rs          # 反向代理
-    └── rewrite.rs        # URL 重写引擎（伪静态）
+    ├── rewrite.rs        # URL 重写引擎（伪静态）
+    ├── load_balancer.rs  # 负载均衡
+    ├── rate_limiter.rs   # IP 限流
+    ├── session.rs        # Session 管理
+    └── logger.rs         # 访问日志
 ```
 
 ## 已编译文件
@@ -192,6 +205,24 @@ ohos-http/
 本项目已为 HarmonyOS ARM64 编译完成，二进制文件位于：
 - `target/release/ohosHttp` - HarmonyOS ARM64 可执行文件
 - `target/release/ohosHttp-aarch64-ohos` - 同上（备份）
+
+## 鸿蒙系统一键安装
+
+使用 `install.sh` 脚本在鸿蒙系统上一键完成所有环境配置：
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+该脚本会自动执行以下操作：
+1. **创建目录结构** - `~/.local/bin`、`~/.config/ohosHttp`、`~/www`、`~/logs/ohosHttp`
+2. **安装二进制文件** - 将 `ohosHttp` 复制到系统 PATH
+3. **配置环境变量** - 自动添加 `~/.local/bin` 到 PATH
+4. **创建默认网站** - 生成漂亮的默认首页
+5. **生成默认配置** - 创建开箱即用的 `config.toml`
+6. **注册系统服务** - 可选，注册 init.d 服务（需 root）
+7. **验证安装** - 确认安装成功
 
 如需 x86_64 Linux 版本，请在 x86_64 Linux 环境下编译。
 
