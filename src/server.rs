@@ -44,18 +44,15 @@ use tokio::sync::Semaphore;
 
 use crate::config::ServerConfig;
 use crate::handler::RequestHandler;
-use crate::session_shm::ShmSessionStore;
 
 /// HTTP 服务器实例
 pub struct HttpServer {
     config: ServerConfig,
-    /// 跨进程共享内存 Session 存储（多进程模式使用）
-    shm_store: Option<Arc<ShmSessionStore>>,
 }
 
 impl HttpServer {
-    pub fn new(config: ServerConfig, shm_store: Option<Arc<ShmSessionStore>>) -> Self {
-        HttpServer { config, shm_store }
+    pub fn new(config: ServerConfig) -> Self {
+        HttpServer { config }
     }
 
     /// 启动服务器（含 TLS、HTTP/2、HTTP/3 支持）
@@ -65,10 +62,9 @@ impl HttpServer {
         let addr: SocketAddr = self.config.bind.parse()
             .map_err(|e| format!("绑定地址格式错误 '{}': {}", self.config.bind, e))?;
 
-        // 创建 Handler（传入共享内存 Session 存储）
-        let handler = Arc::new(RequestHandler::new_with_shm(
+        // 创建 Handler
+        let handler = Arc::new(RequestHandler::new(
             self.config.clone(),
-            self.shm_store.clone(),
         ));
 
         // ─── TLS 配置（如果提供了 cert/key） ───
@@ -79,11 +75,11 @@ impl HttpServer {
             None
         };
 
-        // ─── TCP Listener（支持 SO_REUSEPORT，允许多进程共享同一端口） ───
+        // ─── TCP Listener ───
         let listener = create_tcp_listener(addr).await?;
 
-        info!("ohosHttp 服务器启动: {} (根目录: {}, 线程: {}, 进程: {})",
-            self.config.bind, self.config.root, self.config.threads, self.config.workers);
+        info!("ohosHttp 服务器启动: {} (根目录: {}, 线程: {})",
+            self.config.bind, self.config.root, self.config.threads);
 
         if tls_config.is_some() {
             info!("TLS/HTTPS 已启用 — ALPN: h2, http/1.1");
@@ -207,29 +203,9 @@ impl HttpServer {
     }
 }
 
-/// 创建 TCP Listener 并设置 SO_REUSEPORT 选项
-///
-/// SO_REUSEPORT 允许多个 Worker 进程同时绑定到同一地址和端口，
-/// 由内核在进程间分发连接请求，实现内核级负载均衡。
+/// 创建 TCP Listener（使用 tokio 标准绑定，非阻塞 IO）
 async fn create_tcp_listener(addr: SocketAddr) -> Result<TcpListener, Box<dyn std::error::Error + Send + Sync>> {
-    use socket2::{Domain, Protocol, Socket, Type};
-
-    let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
-    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
-
-    // 启用 SO_REUSEADDR 和 SO_REUSEPORT
-    socket.set_reuse_address(true)?;
-    #[cfg(target_os = "linux")]
-    socket.set_reuse_port(true)?;
-
-    // 绑定并监听
-    socket.bind(&addr.into())?;
-    socket.listen(1024)?;
-
-    // 将 socket2 转换为 tokio TcpListener
-    let std_listener: std::net::TcpListener = socket.into();
-    let listener = TcpListener::from_std(std_listener)?;
-
+    let listener = TcpListener::bind(addr).await?;
     Ok(listener)
 }
 

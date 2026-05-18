@@ -207,9 +207,7 @@ impl ServerConfig {
         if self.threads == 0 {
             self.threads = num_cpus();
         }
-        if self.workers == 0 {
-            self.workers = num_cpus();
-        }
+
     }
 }
 
