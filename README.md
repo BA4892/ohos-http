@@ -26,6 +26,8 @@
 - ✅ **IP 访问控制** - 可关闭 IP 直连，只允许绑定的域名访问
 - ✅ **Session 支持** - 基于 Cookie 的内存 Session 管理，支持 TTL 过期
 - ✅ **负载均衡** - 加权轮询分发请求到多个后端服务器
+- ✅ **管理 API** - 提供 RESTful 管理接口（配置读写、启停控制、状态监控），含鸿蒙 ArkTS 客户端 SDK
+- ✅ **ArkTS 示例** - 提供完整鸿蒙 ArkTS 调用示例 `examples/ohos-http-api.ets`
 
 ## 完整文档
 
@@ -196,12 +198,16 @@ ohos-http/
 ├── build.sh              # 构建脚本
 ├── install.sh            # 鸿蒙系统一键安装脚本
 ├── www/                  # 默认网站根目录
+├── examples/             # 鸿蒙 ArkTS 示例
+│   ├── ohos-http-api.ets # 管理 API 客户端 SDK + 开发示例
+│   └── config.toml       # 示例配置文件
 └── src/
     ├── main.rs           # 入口和 CLI 参数解析
     ├── banner.rs         # 启动画面
     ├── config.rs         # 配置解析
     ├── server.rs         # HTTP 服务器核心
     ├── handler.rs        # 请求处理（静态文件、上传、CGI）
+    ├── manage.rs         # 管理 API（鸿蒙 ArkTS 接口）
     ├── proxy.rs          # 反向代理
     ├── rewrite.rs        # URL 重写引擎（伪静态）
     ├── load_balancer.rs  # 负载均衡

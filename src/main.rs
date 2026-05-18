@@ -24,8 +24,9 @@
 mod banner;
 mod config;
 mod handler;
-mod logger;
 mod load_balancer;
+mod logger;
+mod manage;
 mod proxy;
 mod rate_limiter;
 mod rewrite;
@@ -102,6 +103,10 @@ struct CliArgs {
     /// CGI 文件扩展名 (逗号分隔，默认 .php)
     #[arg(long, default_value = ".php")]
     cgi_ext: String,
+
+    /// 管理 API 认证 Token（设置后启用 /_ohos/* 管理接口）
+    #[arg(long, default_value = "")]
+    manage_auth: String,
 }
 
 // ============================================================================
@@ -122,6 +127,12 @@ fn main() {
 
     // 加载配置
     let app_config = load_config(&args);
+
+    // 设置管理 API 认证（fork 前设置，子进程继承）
+    if !args.manage_auth.is_empty() {
+        manage::set_manage_auth_token(&args.manage_auth);
+        info!("管理 API 已启用 (/_ohos/*)，认证 Token 已配置");
+    }
 
     // 确定 Worker 数量
     let worker_count = determine_workers(&app_config);
@@ -309,12 +320,17 @@ fn run_worker(app_config: &AppConfig, worker_id: usize) {
 /// Worker 异步主循环
 async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
     use server::HttpServer;
+    use manage::ManageHandler;
 
     let servers = &app_config.server;
     if servers.is_empty() {
         error!("Worker: 没有可用的服务器配置");
         return;
     }
+
+    // 检查管理 API 是否启用
+    let auth_token = manage::MANAGE_AUTH_TOKEN.get().cloned().unwrap_or_default();
+    let manage_enabled = !auth_token.is_empty();
 
     // 创建关闭信号通道
     let (shutdown_tx, _) = tokio::sync::watch::channel(false);
@@ -323,7 +339,12 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
     let mut handles = Vec::new();
     for srv_config in servers {
         let shutdown_rx = shutdown_tx.subscribe();
-        let server = HttpServer::new(srv_config.clone());
+        let server = if manage_enabled {
+            let manage_handler = ManageHandler::new(app_config, &auth_token);
+            HttpServer::new_with_manage(srv_config.clone(), manage_handler)
+        } else {
+            HttpServer::new(srv_config.clone())
+        };
         handles.push(tokio::spawn(async move {
             if let Err(e) = server.start(shutdown_rx).await {
                 error!("服务器启动失败: {}", e);

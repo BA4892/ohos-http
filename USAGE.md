@@ -1130,3 +1130,248 @@ ohosHttp -c config.toml -d           # 重新启动
 pkill ohosHttp
 ohosHttp -c config.toml -d
 ```
+
+---
+
+## 管理 API（鸿蒙 ArkTS 接口）
+
+ohosHttp 提供了一套 RESTful 管理 API，允许通过 HTTP 接口管理服务器。特别为鸿蒙 PC/设备端 ArkTS 应用提供了完整的客户端 SDK。
+
+### 启用管理 API
+
+通过 `--manage-auth` 参数启用：
+
+```bash
+ohosHttp -a 0.0.0.0:8089 -r ./www --manage-auth mySecretToken
+```
+
+如欲停止使用 Arg 也能够在启动时使用 `OHOS_MANAGE_TOKEN` 环境变量：
+
+```bash
+export OHOS_MANAGE_TOKEN=mySecretToken
+ohosHttp -a 0.0.0.0:8089 -r ./www --manage-auth-auto
+```
+
+启用后，启动画面会显示：
+
+```
+  │   管理 API    │  已启用 (/_ohos/, 需要 Bearer Token 认证)
+```
+
+### API 端点一览
+
+| 方法 | 路径 | 描述 | 请求体 |
+|------|------|------|--------|
+| GET | `/_ohos/config` | 获取服务器完整配置 | — |
+| PUT | `/_ohos/config` | 更新配置（TOML 字符串或 JSON） | TOML / JSON |
+| GET | `/_ohos/status` | 获取服务器运行状态 | — |
+| GET | `/_ohos/metrics` | 获取运行时指标 | — |
+| POST | `/_ohos/start` | 恢复服务（取消暂停） | — |
+| POST | `/_ohos/pause` | 暂停服务（新请求返回 503） | — |
+| POST | `/_ohos/stop` | 优雅停止服务器 | — |
+| POST | `/_ohos/restart` | 热重启（重新加载配置 + 零停机） | — |
+
+### 认证方式
+
+所有 API 请求需要在 HTTP 头中携带 Bearer Token：
+
+```
+Authorization: Bearer mySecretToken
+```
+
+### 通用响应结构
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": { ... }
+}
+```
+
+错误时：
+
+```json
+{
+  "code": 401,
+  "message": "Unauthorized",
+  "error": "Invalid or missing auth token"
+}
+```
+
+### 鸿蒙 ArkTS 客户端
+
+项目提供了完整的 ArkTS 接口文件 `examples/ohos-http-api.ets`，包含：
+
+- **类型定义**：`ServerConfig`、`AppConfig`、`StatusData`、`MetricsData` 等全部配置项
+- **客户端类** `OhosHttpClient`：封装所有 API 调用
+- **开发示例**：完整的鸿蒙 @Entry @Component 页面
+
+#### 引入方式
+
+将 `examples/ohos-http-api.ets` 复制到你的鸿蒙项目中：
+
+```typescript
+import { OhosHttpClient } from './ohos-http-api';
+```
+
+#### 基础用法
+
+```typescript
+// 创建客户端（地址为 ohosHttp 绑定地址 + 管理 Token）
+const client = new OhosHttpClient('http://192.168.1.100:8089', 'mySecretToken');
+
+// 获取状态
+const status = await client.getStatus();
+if (status.code === 0) {
+  console.info(`服务器已运行 ${status.data!.status.uptime_human}`);
+}
+
+// 获取完整配置
+const config = await client.getConfig();
+console.info(`站点数: ${config.data!.server_count}`);
+
+// 暂停/恢复
+await client.pause();
+await client.start();
+
+// 热重启
+await client.restart();
+```
+
+#### 开发示例
+
+参考 `examples/ohos-http-api.ets` 文件末尾的完整 ArkTS 页面示例，包含：
+
+- 状态实时刷新
+- 启动 / 暂停 / 重启 / 停止按钮
+- 配置查看与修改界面
+
+### API 响应数据类型
+
+#### `GET /_ohos/config` → `ConfigData`
+
+```typescript
+interface ConfigData {
+  config: AppConfig;    // 完整应用配置（含所有 server 配置项）
+  config_path: string;  // 配置文件路径
+  server_count: number; // 站点数
+}
+```
+
+#### `GET /_ohos/status` → `StatusData`
+
+```typescript
+interface StatusData {
+  server: {
+    version: string;
+    name: string;
+    description: string;
+  };
+  status: {
+    paused: boolean;
+    uptime_secs: number;
+    uptime_human: string;
+    pid: number;
+    ppid: number;
+  };
+  config: {
+    config_path: string;
+    server_count: number;
+  };
+  sites: Array<{
+    bind: string;
+    root: string;
+    domains: string[];
+    https: boolean;
+    workers: number;
+  }>;
+}
+```
+
+#### `GET /_ohos/metrics` → `MetricsData`
+
+```typescript
+interface MetricsData {
+  requests: {
+    total: number;
+    per_second: number;
+  };
+  uptime: {
+    seconds: number;
+    human: string;
+  };
+  process: {
+    pid: number;
+    worker_index: number;
+  };
+  memory: Record<string, string>;
+}
+```
+
+### 配置文件所有配置项
+
+管理 API 暴露的配置项与 TOML 配置文件一一对应。详见下方 ArkTS 类型定义中的 `ServerConfig` 接口：
+
+| 配置字段 | 类型 | 说明 |
+|----------|------|------|
+| `bind` | `string` | 绑定地址和端口 |
+| `root` | `string` | 网站根目录 |
+| `domains` | `string[]` | 虚拟主机域名列表 |
+| `upload_max_size` | `string` | 上传最大大小（如 "10MB"） |
+| `workers` | `number` | Worker 进程数（0=自动） |
+| `cache_enabled` | `boolean` | 是否启用缓存 |
+| `cache_ttl` | `string` | 缓存过期时间（如 "1h"） |
+| `cache_max_size` | `string` | 缓存最大内存（如 "100MB"） |
+| `directory_listing` | `boolean` | 目录列表 |
+| `access_log` | `string?` | 访问日志路径 |
+| `log_rotate_size` | `string` | 日志轮转大小 |
+| `rewrite` | `RewriteRule[]` | URL 重写规则 |
+| `cgi` | `CgiConfig[]` | CGI 解释器配置 |
+| `location` | `LocationConfig[]` | 路径规则（代理/静态/CGI） |
+| `cors_origin` | `string` | CORS 允许的源 |
+| `cors_methods` | `string` | CORS 允许的方法 |
+| `cors_headers` | `string` | CORS 允许的头 |
+| `cert` | `string?` | TLS 证书路径 |
+| `key` | `string?` | TLS 私钥路径 |
+| `http3_port` | `string` | HTTP/3 (QUIC) 端口（0=不启用） |
+| `rate_limit` | `RateLimitConfig?` | 限流配置 |
+| `blacklist` | `string[]` | IP 黑名单 |
+| `per_ip_rates` | `Record<string, number>` | 自定义 IP 限流 |
+| `session` | `SessionConfig?` | Session 配置 |
+| `allow_ip_access` | `boolean` | 允许 IP 直连 |
+
+### cURL 使用示例
+
+```bash
+AUTH="Authorization: Bearer mySecretToken"
+
+# 获取运行状态
+curl -s -H "$AUTH" http://localhost:8089/_ohos/status | jq .
+
+# 获取指标
+curl -s -H "$AUTH" http://localhost:8089/_ohos/metrics | jq .
+
+# 获取配置
+curl -s -H "$AUTH" http://localhost:8089/_ohos/config | jq .
+
+# 更新配置（TOML 格式）
+curl -X PUT -H "$AUTH" -H "Content-Type: text/plain" \
+  -d @config.toml http://localhost:8089/_ohos/config
+
+# 更新配置（JSON 格式）
+curl -X PUT -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"format": "json"}' http://localhost:8089/_ohos/config
+
+# 暂停服务
+curl -X POST -H "$AUTH" http://localhost:8089/_ohos/pause
+
+# 恢复服务
+curl -X POST -H "$AUTH" http://localhost:8089/_ohos/start
+
+# 热重启
+curl -X POST -H "$AUTH" http://localhost:8089/_ohos/restart
+
+# 停止服务
+curl -X POST -H "$AUTH" http://localhost:8089/_ohos/stop
+```

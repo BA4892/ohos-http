@@ -45,15 +45,21 @@ use tokio::sync::watch;
 
 use crate::config::ServerConfig;
 use crate::handler::RequestHandler;
+use crate::manage::ManageHandler;
 
 /// HTTP 服务器实例
 pub struct HttpServer {
     config: ServerConfig,
+    manage_handler: Option<ManageHandler>,
 }
 
 impl HttpServer {
     pub fn new(config: ServerConfig) -> Self {
-        HttpServer { config }
+        HttpServer { config, manage_handler: None }
+    }
+
+    pub fn new_with_manage(config: ServerConfig, manage_handler: ManageHandler) -> Self {
+        HttpServer { config, manage_handler: Some(manage_handler) }
     }
 
     /// 启动服务器（含 TLS、HTTP/2、HTTP/3 支持）
@@ -63,10 +69,17 @@ impl HttpServer {
         let addr: SocketAddr = self.config.bind.parse()
             .map_err(|e| format!("绑定地址格式错误 '{}': {}", self.config.bind, e))?;
 
-        // 创建 Handler
-        let handler = Arc::new(RequestHandler::new(
-            self.config.clone(),
-        ));
+        // 创建 Handler（带管理 API）
+        let handler = if let Some(ref manage) = self.manage_handler {
+            Arc::new(RequestHandler::new_with_manage(
+                self.config.clone(),
+                manage.clone(),
+            ))
+        } else {
+            Arc::new(RequestHandler::new(
+                self.config.clone(),
+            ))
+        };
 
         // ─── TLS 配置（如果提供了 cert/key） ───
         let tls_config = if let (Some(cert_path), Some(key_path)) = (&self.config.cert, &self.config.key) {

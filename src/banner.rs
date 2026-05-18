@@ -101,6 +101,10 @@ pub fn print_startup_banner(configs: &[ServerConfig], worker_count: usize) {
         if lb_count > 0 {
             println!("  │   负载均衡    │  {} 条路径                                              │", lb_count);
         }
+        // 管理 API
+        if crate::manage::is_manage_enabled() {
+            println!("  │   管理 API    │  已启用 (/_ohos/, 需要 Bearer Token 认证)                        │");
+        }
         println!("  │   伪静态规则  │  {:<47}│", if rewrite_count > 0 { format!("{} 条", rewrite_count) } else { "无".to_string() });
         println!("  │   代理规则    │  {:<47}│", if proxy_count > 0 { format!("{} 条", proxy_count) } else { "无".to_string() });
         println!("  │   路径规则    │  {:<47}│", if location_count > 0 { format!("{} 条", location_count) } else { "无".to_string() });
