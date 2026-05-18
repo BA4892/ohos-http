@@ -12,6 +12,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 info()  { printf "${BLUE}[INFO]${NC}  %s\n" "$*"; }
@@ -22,7 +23,7 @@ error() { printf "${RED}[ERROR]${NC} %s\n" "$*"; }
 # ---- 横幅 ----
 cat << 'BANNER'
 =========================================
-  ohosHttp v1.1.0 - 鸿蒙系统一键安装
+  ohosHttp v1.3.0 - 鸿蒙系统一键安装
   高性能 HTTP 服务器
   HarmonyOS ARM64
 =========================================
@@ -47,24 +48,91 @@ ok "目录创建完成"
 # ---- 步骤 2: 安装二进制文件 ----
 info "安装 ohosHttp 二进制..."
 
-# 查找二进制文件
+# 查找二进制文件（支持 build.sh 所有输出名）
 BINARY_SOURCE=""
 for candidate in \
     "$SCRIPT_DIR/target/release/ohosHttp" \
+    "$SCRIPT_DIR/target/release/ohosHttp-aarch64-ohos" \
+    "$SCRIPT_DIR/target/release/ohosHttp-x86_64-linux" \
+    "$SCRIPT_DIR/target/release/ohosHttp-aarch64-linux" \
+    "$SCRIPT_DIR/target/release/ohosHttp-aarch64-darwin" \
+    "$SCRIPT_DIR/target/release/ohosHttp-x86_64-darwin" \
     "$SCRIPT_DIR/ohosHttp" \
     "$SCRIPT_DIR/ohosHttp-aarch64-ohos" \
-    "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp"; do
+    "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp" \
+    "$SCRIPT_DIR/target/x86_64-unknown-linux-gnu/release/ohosHttp"; do
     if [ -f "$candidate" ] && [ -x "$candidate" ]; then
         BINARY_SOURCE="$candidate"
         break
     fi
 done
 
+# 如果未找到二进制，调用 build.sh 源码编译
 if [ -z "$BINARY_SOURCE" ]; then
-    error "未找到 ohosHttp 二进制文件！"
-    error "请先从 https://gitcode.com/cncoder/ohos-http/releases 下载"
-    error "或将编译好的 ohosHttp 放在当前目录下"
-    exit 1
+    warn "未找到预编译的 ohosHttp 二进制"
+    echo ""
+    printf "  ${YELLOW}将调用 build.sh 从源代码编译...${NC}\n"
+    printf "  ${YELLOW}需要 Rust 工具链和编译依赖（gcc/cmake/pkg-config 等）${NC}\n"
+    echo ""
+
+    # 检查 build.sh 是否存在
+    if [ ! -f "$SCRIPT_DIR/build.sh" ]; then
+        error "找不到 build.sh 构建脚本！"
+        error "请从 https://gitcode.com/cncoder/ohos-http/releases 下载预编译二进制"
+        error "或手动克隆完整仓库后重新运行安装脚本"
+        exit 1
+    fi
+
+    # 询问用户是否继续
+    printf "  ${CYAN}是否继续编译？[Y/n]: ${NC}"
+    read -r user_input </dev/tty 2>/dev/null || user_input="y"
+    case "$user_input" in
+        n|N|no|NO)
+            echo ""
+            error "用户取消编译"
+            error "请从 https://gitcode.com/cncoder/ohos-http/releases 下载预编译二进制"
+            exit 1
+            ;;
+        *)
+            echo ""
+            info "开始编译..."
+            # 执行 build.sh 自动检测系统并编译
+            if [ -x "$SCRIPT_DIR/build.sh" ]; then
+                "$SCRIPT_DIR/build.sh"
+            else
+                sh "$SCRIPT_DIR/build.sh"
+            fi
+            BUILD_EXIT=$?
+            if [ "$BUILD_EXIT" -ne 0 ]; then
+                error "编译失败（退出码: $BUILD_EXIT）"
+                error "请检查上方错误信息，或从发行版下载预编译二进制"
+                exit 1
+            fi
+            ok "编译完成"
+            ;;
+    esac
+
+    # 编译后再次查找二进制
+    for candidate in \
+        "$SCRIPT_DIR/target/release/ohosHttp" \
+        "$SCRIPT_DIR/target/release/ohosHttp-aarch64-ohos" \
+        "$SCRIPT_DIR/target/release/ohosHttp-x86_64-linux" \
+        "$SCRIPT_DIR/target/release/ohosHttp-aarch64-linux" \
+        "$SCRIPT_DIR/target/release/ohosHttp-aarch64-darwin" \
+        "$SCRIPT_DIR/target/release/ohosHttp-x86_64-darwin" \
+        "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp"; do
+        if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+            BINARY_SOURCE="$candidate"
+            break
+        fi
+    done
+
+    if [ -z "$BINARY_SOURCE" ]; then
+        error "编译完成，但未找到生成的二进制文件！"
+        error "请检查 target/release/ 目录下的输出"
+        ls -lh "$SCRIPT_DIR/target/release/"*ohosHttp* 2>/dev/null || true
+        exit 1
+    fi
 fi
 
 cp "$BINARY_SOURCE" "$BIN_DIR/ohosHttp"
