@@ -16,13 +16,28 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
+use crate::session_shm::ShmSessionStore;
+
+pub fn default_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 /// 单个 Session 数据
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
     pub data: HashMap<String, String>,
+    #[serde(skip, default = "crate::session::default_now")]
     pub created_at: Instant,
+    #[serde(skip, default = "crate::session::default_now")]
     pub last_access: Instant,
+    /// 序列化用 — 自纪元以来的纳秒数
+    #[serde(rename = "created_at_nanos")]
+    created_at_nanos: u128,
+    #[serde(rename = "last_access_nanos")]
+    last_access_nanos: u128,
 }
 
 impl Session {
@@ -33,6 +48,22 @@ impl Session {
             data: HashMap::new(),
             created_at: now,
             last_access: now,
+            created_at_nanos: 0,
+            last_access_nanos: 0,
+        }
+    }
+
+    /// 从共享内存反序列化后修复 Instant 字段
+    fn fix_timestamps(&mut self) {
+        if self.created_at_nanos > 0 {
+            // 近似重建：从当前时间减去 duration
+            let now = Instant::now();
+            let elapsed_nanos = self.last_access_nanos.saturating_sub(self.created_at_nanos);
+            self.created_at = now - Duration::from_nanos(elapsed_nanos as u64);
+            self.last_access = now;
+        } else {
+            self.created_at = Instant::now();
+            self.last_access = Instant::now();
         }
     }
 
@@ -54,13 +85,15 @@ impl Session {
     }
 }
 
-/// Session 管理器（线程安全，内存存储）
+/// Session 管理器（线程安全，内存存储 + 可选跨进程共享内存）
 pub struct SessionStore {
     sessions: RwLock<HashMap<String, Session>>,
     cookie_name: String,
     ttl: Duration,
     cleanup_interval: Duration,
     last_cleanup: RwLock<Instant>,
+    /// 跨进程共享内存后端（多进程模式使用）
+    shm_store: Option<Arc<ShmSessionStore>>,
 }
 
 impl SessionStore {
@@ -71,7 +104,14 @@ impl SessionStore {
             ttl: Duration::from_secs(ttl_seconds),
             cleanup_interval: Duration::from_secs(300), // 每5分钟清理一次
             last_cleanup: RwLock::new(Instant::now()),
+            shm_store: None,
         }
+    }
+
+    /// 设置共享内存后端（多进程模式）
+    pub fn with_shm(mut self, shm: Arc<ShmSessionStore>) -> Self {
+        self.shm_store = Some(shm);
+        self
     }
 
     /// 获取 cookie 名称
@@ -82,38 +122,79 @@ impl SessionStore {
     /// 创建新 session，返回 session ID
     pub fn create(&self) -> String {
         let session_id = generate_session_id();
+        let session = Session::new(session_id.clone());
 
-        let mut sessions = self.sessions.write().unwrap();
-        sessions.insert(session_id.clone(), Session::new(session_id.clone()));
+        // 写入本地内存
+        {
+            let mut sessions = self.sessions.write().unwrap();
+            sessions.insert(session_id.clone(), session.clone());
+        }
+
+        // 写入共享内存（跨进程）
+        if let Some(shm) = &self.shm_store {
+            let _ = shm.put(&session_id, &session);
+        }
 
         session_id
     }
 
-    /// 根据 session ID 获取 session（更新最后访问时间）
+    /// 根据 session ID 获取 session
     pub fn get(&self, session_id: &str) -> Option<Session> {
-        let sessions = self.sessions.read().unwrap();
-        sessions.get(session_id).cloned()
+        // 先查本地（hot cache）
+        {
+            let sessions = self.sessions.read().unwrap();
+            if let Some(s) = sessions.get(session_id) {
+                return Some(s.clone());
+            }
+        }
+
+        // 再查共享内存（跨进程）
+        if let Some(shm) = &self.shm_store {
+            if let Some(mut session) = shm.get(session_id) {
+                session.fix_timestamps();
+                // 同时缓存到本地
+                let mut sessions = self.sessions.write().unwrap();
+                sessions.insert(session_id.to_string(), session.clone());
+                return Some(session);
+            }
+        }
+
+        None
     }
 
     /// 获取可变 session
     pub fn get_mut(&self, session_id: &str) -> Option<Session> {
-        let mut sessions = self.sessions.write().unwrap();
-        sessions.get_mut(session_id).map(|s| {
-            s.last_access = Instant::now();
-            s.clone()
-        })
+        let mut session = self.get(session_id)?;
+        session.last_access = Instant::now();
+        Some(session)
     }
 
-    /// 更新 session 数据
+    /// 更新 session 数据（同时更新本地和共享内存）
     pub fn update(&self, session: Session) {
-        let mut sessions = self.sessions.write().unwrap();
-        sessions.insert(session.id.clone(), session);
+        // 更新本地
+        {
+            let mut sessions = self.sessions.write().unwrap();
+            sessions.insert(session.id.clone(), session.clone());
+        }
+
+        // 更新共享内存
+        if let Some(shm) = &self.shm_store {
+            let _ = shm.put(&session.id, &session);
+        }
     }
 
     /// 删除 session
     pub fn remove(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().unwrap();
-        sessions.remove(session_id);
+        // 从本地删除
+        {
+            let mut sessions = self.sessions.write().unwrap();
+            sessions.remove(session_id);
+        }
+
+        // 从共享内存删除
+        if let Some(shm) = &self.shm_store {
+            let _ = shm.remove(session_id);
+        }
     }
 
     /// 清理过期 session

@@ -19,7 +19,6 @@ use std::time::SystemTime;
 use bytes::Bytes;
 use chrono::Utc;
 use hyper::{body::Incoming, HeaderMap, Method, Request, Response, StatusCode};
-use http::request::Parts as HttpParts;
 use http_body_util::{BodyExt, Full};
 use mime_guess::from_path;
 use tokio::fs;
@@ -33,6 +32,7 @@ use crate::proxy::ProxyClient;
 use crate::rate_limiter::RateLimiter;
 use crate::rewrite::RewriteEngine;
 use crate::session::SessionStore;
+use crate::session_shm::ShmSessionStore;
 
 /// 简单内存缓存
 #[allow(dead_code)]
@@ -66,6 +66,15 @@ pub struct RequestHandler {
 
 impl RequestHandler {
     pub fn new(config: ServerConfig) -> Self {
+        Self::new_internal(config, None)
+    }
+
+    /// 创建 RequestHandler 并传入跨进程共享内存 Session 存储
+    pub fn new_with_shm(config: ServerConfig, shm_store: Option<Arc<ShmSessionStore>>) -> Self {
+        Self::new_internal(config, shm_store)
+    }
+
+    fn new_internal(config: ServerConfig, shm_store_in: Option<Arc<ShmSessionStore>>) -> Self {
         let rewrite_engine = RewriteEngine::new(&config.rewrite);
 
         let has_proxy = config.location.iter().any(|l| l.proxy_pass.is_some());
@@ -102,7 +111,13 @@ impl RequestHandler {
 
         // 初始化 Session 存储
         let session_store = config.session.as_ref().filter(|s| s.enabled).map(|sc| {
-            SessionStore::new(&sc.cookie_name, sc.ttl)
+            let store = SessionStore::new(&sc.cookie_name, sc.ttl);
+            // 如果提供了共享内存后端，则绑定（多进程模式跨进程 Session 共享）
+            if let Some(shm) = &shm_store_in {
+                store.with_shm(shm.clone())
+            } else {
+                store
+            }
         });
 
         // 初始化负载均衡器

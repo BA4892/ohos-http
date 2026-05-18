@@ -77,6 +77,10 @@ pub struct ServerConfig {
     #[serde(default = "default_threads")]
     pub threads: usize,
 
+    /// 工作进程数（多进程模式，0=auto=CPU核数，1=单进程）
+    #[serde(default = "default_workers")]
+    pub workers: usize,
+
     /// 是否启用缓存
     #[serde(default = "default_cache_enabled")]
     pub cache_enabled: bool,
@@ -177,7 +181,8 @@ pub struct ServerConfig {
 fn default_bind() -> String { "0.0.0.0:8080".to_string() }
 fn default_root() -> String { "./www".to_string() }
 fn default_upload_max_size() -> String { "10MB".to_string() }
-fn default_threads() -> usize { 4 }
+fn default_threads() -> usize { 0 }  // 0 = auto = num_cpus
+fn default_workers() -> usize { 0 }  // 0 = auto = num_cpus
 fn default_cache_enabled() -> bool { false }
 fn default_cache_ttl() -> String { "1h".to_string() }
 fn default_cache_max_size() -> String { "100MB".to_string() }
@@ -201,6 +206,9 @@ impl ServerConfig {
         self.log_rotate_size_bytes = parse_size(&self.log_rotate_size).unwrap_or(0);
         if self.threads == 0 {
             self.threads = num_cpus();
+        }
+        if self.workers == 0 {
+            self.workers = num_cpus();
         }
     }
 }
@@ -351,6 +359,7 @@ impl AppConfig {
             domains: Vec::new(),
             upload_max_size: default_upload_max_size(),
             upload_max_size_bytes: 0,
+            workers: default_workers(),
             threads: default_threads(),
             cache_enabled: default_cache_enabled(),
             cache_ttl: default_cache_ttl(),

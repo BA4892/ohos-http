@@ -78,6 +78,16 @@ chmod +x install.sh
 ./ohosHttp -c config.toml
 ```
 
+## 架构设计
+
+ohosHttp 采用 **进程 (Process) × 线程 (Thread) × 协程 (Coroutine)** 三层架构：
+
+- **进程层**：Master-Worker 多进程模型，每核一个 Worker，`SO_REUSEPORT` 内核级负载均衡
+- **线程层**：Tokio 多线程运行时，Work-Stealing 调度器，真正并行执行
+- **协程层**：每个连接一个异步任务，零成本上下文切换，百万级并发
+
+详见 [架构文档](docs/ARCHITECTURE.md)
+
 ## 配置文件说明
 
 配置文件使用 TOML 格式，支持多站点配置：
