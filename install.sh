@@ -72,8 +72,127 @@ if [ -z "$BINARY_SOURCE" ]; then
     warn "未找到预编译的 ohosHttp 二进制"
     echo ""
     printf "  ${YELLOW}将调用 build.sh 从源代码编译...${NC}\n"
-    printf "  ${YELLOW}需要 Rust 工具链和编译依赖（gcc/cmake/pkg-config 等）${NC}\n"
     echo ""
+
+    # ── 检查 Rust 工具链 ──
+    info "检查 Rust 工具链..."
+    RUST_INSTALLED=false
+    if command -v rustc >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
+        RUST_VERSION=$(rustc --version 2>/dev/null | head -1)
+        info "已检测到 Rust 工具链: ${RUST_VERSION}"
+        RUST_INSTALLED=true
+    else
+        warn "未检测到 Rust 工具链"
+        echo ""
+        printf "  ${CYAN}是否自动安装 HarmonyOS 版 Rust v1.95.0？[Y/n]: ${NC}"
+        read -r rust_choice </dev/tty 2>/dev/null || rust_choice="y"
+        case "$rust_choice" in
+            n|N|no|NO)
+                warn "跳过 Rust 安装，请手动安装 Rust 后重新运行本脚本"
+                warn "鸿蒙 PC 版 Rust 安装地址:"
+                warn "  https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/download/v1.95.0/install.sh"
+                echo ""
+                printf "  ${CYAN}是否继续编译（若已有 Rust 工具链）？[y/N]: ${NC}"
+                read -r skip_choice </dev/tty 2>/dev/null || skip_choice="n"
+                case "$skip_choice" in
+                    y|Y|yes|YES) ;;
+                    *) exit 1 ;;
+                esac
+                ;;
+            *)
+                info "正在安装 HarmonyOS 版 Rust v1.95.0..."
+                RUST_INSTALL_URL="https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/download/v1.95.0/install.sh"
+                if command -v curl >/dev/null 2>&1; then
+                    if /bin/sh -c "$(curl -fsSL --retry 3 --connect-timeout 30 "${RUST_INSTALL_URL}")"; then
+                        ok "HarmonyOS Rust 安装成功"
+                        RUST_INSTALLED=true
+                    else
+                        warn "curl 安装失败，尝试 wget..."
+                        if command -v wget >/dev/null 2>&1; then
+                            if /bin/sh -c "$(wget -qO- --timeout=30 "${RUST_INSTALL_URL}")"; then
+                                ok "HarmonyOS Rust 安装成功"
+                                RUST_INSTALLED=true
+                            fi
+                        fi
+                        if [ "$RUST_INSTALLED" != true ]; then
+                            error "HarmonyOS Rust 安装失败"
+                            error "请手动安装:"
+                            error "  /bin/sh -c \"\$(curl -fsSL ${RUST_INSTALL_URL})\""
+                            exit 1
+                        fi
+                    fi
+                elif command -v wget >/dev/null 2>&1; then
+                    if /bin/sh -c "$(wget -qO- --timeout=30 "${RUST_INSTALL_URL}")"; then
+                        ok "HarmonyOS Rust 安装成功"
+                        RUST_INSTALLED=true
+                    else
+                        error "HarmonyOS Rust 安装失败"
+                        exit 1
+                    fi
+                else
+                    error "找不到 curl 或 wget，无法下载"
+                    error "请手动安装 Rust:"
+                    error "  /bin/sh -c \"\$(curl -fsSL ${RUST_INSTALL_URL})\""
+                    exit 1
+                fi
+                ;;
+        esac
+    fi
+
+    # ── 处理鸿蒙 PC 无 CC（C 编译器）问题 ──
+    info "检查 C 编译器..."
+    CC_CONFIGURED=false
+    if command -v cc >/dev/null 2>&1; then
+        ok "已检测到 C 编译器: $(cc --version 2>/dev/null | head -1)"
+        CC_CONFIGURED=true
+    elif command -v clang >/dev/null 2>&1; then
+        warn "未检测到 cc，但发现 clang，将配置 clang 作为 C 编译器"
+        export CC="clang"
+        export CC_aarch64-unknown-linux-ohos="clang"
+        # 写入 shell 配置
+        if [ -n "$SHELL_PROFILE" ]; then
+            echo "" >> "$SHELL_PROFILE"
+            echo "# ohosHttp: C 编译器（鸿蒙 PC 无 cc）" >> "$SHELL_PROFILE"
+            echo "export CC=clang" >> "$SHELL_PROFILE"
+            echo "export CC_aarch64-unknown-linux-ohos=clang" >> "$SHELL_PROFILE"
+        fi
+        ok "已配置 clang 为 C 编译器"
+        CC_CONFIGURED=true
+    else
+        warn "========== 鸿蒙 PC 没有 C 编译器（cc）=========="
+        warn "Rust 部分依赖需要通过 C 编译器编译原生代码"
+        warn "请通过应用市场安装 DevBox（包含 clang），或手动安装 clang"
+        echo ""
+        warn "创建临时 cc 包装脚本避免编译中断..."
+        CC_WRAPPER="${BIN_DIR}/cc"
+        mkdir -p "$BIN_DIR"
+        cat > "$CC_WRAPPER" << 'CCWRAP'
+#!/bin/sh
+# cc 包装脚本 — 鸿蒙 PC 兼容层
+# 若 clang 可用则透传，否则输出清晰错误
+if command -v clang >/dev/null 2>&1; then
+    exec clang "$@"
+fi
+echo "ERROR: No C compiler available on HarmonyOS PC." >&2
+echo "Please install clang via DevBox from the app store." >&2
+exit 1
+CCWRAP
+        chmod +x "$CC_WRAPPER"
+        # 将包装脚本路径加入环境
+        export PATH="${BIN_DIR}:$PATH"
+        if [ -n "$SHELL_PROFILE" ]; then
+            echo "" >> "$SHELL_PROFILE"
+            echo "# ohosHttp: cc 包装脚本（鸿蒙 PC 无 cc）" >> "$SHELL_PROFILE"
+            echo "export PATH=\"${BIN_DIR}:\$PATH\"" >> "$SHELL_PROFILE"
+        fi
+        warn "已创建 cc 包装脚本: ${CC_WRAPPER}"
+        warn "强烈建议安装 DevBox 以获得完整的 C 编译支持"
+        CC_CONFIGURED=true
+    fi
+
+    # 将 cargo/bin 加入 PATH（鸿蒙 Rust 安装脚本可能已添加，确保可用）
+    export PATH="$HOME/.cargo/bin:$PATH"
+    export PATH="$HOME/usr/rust-1.95.0-aarch64-unknown-linux-ohos/bin:$PATH"
 
     # 检查 build.sh 是否存在
     if [ ! -f "$SCRIPT_DIR/build.sh" ]; then
