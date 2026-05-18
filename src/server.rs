@@ -12,22 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! HTTP 服务器核心 — 进程层、线程层、协程层协同优化
+//! HTTP 服务器核心 — 单线程 Tokio 运行时 + SO_REUSEPORT
 //!
 //! ## 进程层优化 (Process)
 //!
 //! 使用 `SO_REUSEPORT` 套接字选项使多个 Worker 进程绑定到同一端口，
 //! 由操作系统内核在进程间分发连接。每个 Worker 独立处理其接受的连接。
 //!
-//! ## 线程层优化 (Thread)
-//!
-//! 每个 Worker 进程运行一个 Tokio 多线程运行时 (`new_multi_thread`)，
-//! 工作线程数 = `num_cpus::get()`，充分利用所有 CPU 核心。
-//!
 //! ## 协程层优化 (Coroutine)
 //!
-//! 每个 HTTP 连接由一个 tokio::spawn 异步任务处理。任务在 Worker 线程间
-//! 通过 work-stealing 调度器实现零成本上下文切换。
+//! 每个 HTTP 连接由一个 tokio::spawn 异步任务处理（协程层）。
+//! 单线程事件循环 + 异步任务 = 零成本上下文切换。
+//!
+//! ## Workerman 架构
+//!
+//! - Master 进程: 信号管理, Worker 监控, 零停机热重启
+//! - Worker 进程: 预 fork, 每个 Worker = 1 个 OS 线程 + 1 个事件循环
+//! - SO_REUSEPORT: 内核层负载均衡
+//! - 无共享状态: 进程隔离, 无需锁
 
 use std::fs;
 use std::net::SocketAddr;
@@ -40,7 +42,6 @@ use hyper_util::rt::TokioIo;
 use log::{error, info};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-use tokio::sync::Semaphore;
 
 use crate::config::ServerConfig;
 use crate::handler::RequestHandler;
@@ -78,14 +79,12 @@ impl HttpServer {
         // ─── TCP Listener ───
         let listener = create_tcp_listener(addr).await?;
 
-        info!("ohosHttp 服务器启动: {} (根目录: {}, 线程: {})",
-            self.config.bind, self.config.root, self.config.threads);
+        info!("ohosHttp 服务器启动: {} (根目录: {}, Worker 单线程事件循环)",
+            self.config.bind, self.config.root);
 
         if tls_config.is_some() {
             info!("TLS/HTTPS 已启用 — ALPN: h2, http/1.1");
         }
-
-        let semaphore = Arc::new(Semaphore::new(self.config.threads));
 
         // ─── HTTP/3 (QUIC) 任务 ───
         let h3_port: u16 = self.config.http3_port.parse().unwrap_or(0);
@@ -114,7 +113,6 @@ impl HttpServer {
                     break;
                 }
                 accept_result = listener.accept() => {
-                    let permit = semaphore.clone().acquire_owned().await;
                     match accept_result {
                         Ok((stream, peer_addr)) => {
                             let handler = handler.clone();
@@ -124,7 +122,6 @@ impl HttpServer {
                             let remote_for_log = remote.clone();
                             // 每个连接一个独立异步任务（协程），在 Tokio 线程池中调度
                             tokio::spawn(async move {
-                                let _permit = permit;
 
                                 // 处理 TLS 连接
                                 if let Some(tls_cfg) = tls_config {
@@ -203,9 +200,36 @@ impl HttpServer {
     }
 }
 
-/// 创建 TCP Listener（使用 tokio 标准绑定，非阻塞 IO）
+/// 创建 TCP Listener（SO_REUSEPORT — 多 Worker 共享端口）
 async fn create_tcp_listener(addr: SocketAddr) -> Result<TcpListener, Box<dyn std::error::Error + Send + Sync>> {
-    let listener = TcpListener::bind(addr).await?;
+    use socket2::{Domain, Protocol, Socket, Type};
+    use std::os::fd::AsRawFd;
+
+    let domain = if addr.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+
+    // SO_REUSEPORT — 多个 Worker 绑定同一端口，内核负责连接分发
+    socket.set_reuse_address(true)?;
+    // 原生 setsockopt 确保 SO_REUSEPORT 在任何 Linux 上生效
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let optval: libc::c_int = 1;
+        libc::setsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_REUSEPORT,
+            &optval as *const _ as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as u32,
+        );
+    }
+
+    socket.set_nonblocking(true)?;
+    socket.bind(&socket2::SockAddr::from(addr))?;
+    socket.listen(1024)?;
+
+    // 转换为 tokio TcpListener
+    let std_listener: std::net::TcpListener = socket.into();
+    let listener = TcpListener::from_std(std_listener)?;
     Ok(listener)
 }
 

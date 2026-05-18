@@ -15,7 +15,7 @@ use crate::config::ServerConfig;
 use chrono::Local;
 
 /// 打印美观的启动画面
-pub fn print_startup_banner(configs: &[ServerConfig]) {
+pub fn print_startup_banner(configs: &[ServerConfig], worker_count: usize) {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let version = env!("CARGO_PKG_VERSION");
 
@@ -57,7 +57,7 @@ pub fn print_startup_banner(configs: &[ServerConfig]) {
             println!("  │   域名        │  {:<47}│", cfg.domains.join(", "));
         }
         println!("  │   IP直连     │  {:<47}│", if cfg.allow_ip_access { "允许" } else { "仅域名" });
-        println!("  │   工作线程    │  {:<47}│", cfg.threads);
+        println!("  │   Worker进程  │  {:<47}│", worker_count);
         println!("  │   上传大小    │  {:<47}│", cfg.upload_max_size);
         println!("  │   缓存        │  {:<47}│", cache_status);
         println!("  │   目录列表    │  {:<47}│", if cfg.directory_listing { "开启" } else { "关闭" });

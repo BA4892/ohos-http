@@ -28,6 +28,7 @@ regex = "1"
 bytes = "1"
 http = "1"
 libc = "0.2"
+socket2 = "0.5"
 rustls = { version = "0.23", features = ["ring"] }
 tokio-rustls = "0.26"
 rustls-pemfile = "2"

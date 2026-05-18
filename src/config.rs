@@ -204,10 +204,16 @@ impl ServerConfig {
         self.cache_ttl_seconds = parse_duration(&self.cache_ttl).unwrap_or(3600);
         self.cache_max_size_bytes = parse_size(&self.cache_max_size).unwrap_or(100 * 1024 * 1024);
         self.log_rotate_size_bytes = parse_size(&self.log_rotate_size).unwrap_or(0);
-        if self.threads == 0 {
-            self.threads = num_cpus();
-        }
 
+        // threads 向后兼容：如果配置了 threads 但没配置 workers，则将 workers = threads
+        if self.workers == 0 && self.threads > 0 {
+            self.workers = self.threads;
+        }
+        if self.workers == 0 {
+            self.workers = num_cpus();
+        }
+        // 每个 Worker 单线程运行时
+        self.threads = 1;
     }
 }
 
