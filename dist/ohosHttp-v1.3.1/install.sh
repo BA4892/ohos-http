@@ -37,6 +37,35 @@ WWW_DIR="${WWW_DIR:-$HOME/www}"
 CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/ohosHttp}"
 LOGS_DIR="$HOME/logs/ohosHttp"
 
+# ── 平台检测 ──
+detect_platform() {
+    local arch
+    arch=$(uname -m 2>/dev/null)
+    local os
+    os=$(uname -s 2>/dev/null)
+
+    # 检测是否为鸿蒙系统：
+    #   1. uname -s = HarmonyOS（标准 OHOS 内核返回 HarmonyOS）
+    #   2. 存在 /system/build.prop
+    #   3. uname -a 包含 ohos, harmony 或 hongmeng
+    if [ "$os" = "HarmonyOS" ] || \
+       [ -f "/system/build.prop" ] 2>/dev/null || \
+       echo "$(uname -a 2>/dev/null)" | grep -qiE "ohos|harmony|hongmeng"; then
+        echo "ohos"
+    elif [ "$os" = "Linux" ] && [ "$arch" = "x86_64" ]; then
+        echo "linux-x86_64"
+    elif [ "$os" = "Linux" ] && [ "$arch" = "aarch64" ]; then
+        echo "linux-aarch64"
+    elif [ "$os" = "Darwin" ] && [ "$arch" = "x86_64" ]; then
+        echo "darwin-x86_64"
+    elif [ "$os" = "Darwin" ] && [ "$arch" = "arm64" ]; then
+        echo "darwin-arm64"
+    else
+        echo "unknown"
+    fi
+}
+CURRENT_PLATFORM=$(detect_platform)
+
 # ---- 步骤 1: 创建目录结构 ----
 info "创建目录结构..."
 mkdir -p "$BIN_DIR"
@@ -84,69 +113,126 @@ if [ -z "$BINARY_SOURCE" ]; then
     else
         warn "未检测到 Rust 工具链"
         echo ""
-        printf "  ${CYAN}是否自动安装 HarmonyOS 版 Rust v1.95.0？[Y/n]: ${NC}"
-        read -r rust_choice </dev/tty 2>/dev/null || rust_choice="y"
-        case "$rust_choice" in
-            n|N|no|NO)
-                warn "跳过 Rust 安装，请手动安装 Rust 后重新运行本脚本"
-                warn "鸿蒙 PC 版 Rust 安装地址:"
-                warn "  https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/download/v1.95.0/install.sh"
-                echo ""
-                printf "  ${CYAN}是否继续编译（若已有 Rust 工具链）？[y/N]: ${NC}"
-                read -r skip_choice </dev/tty 2>/dev/null || skip_choice="n"
-                case "$skip_choice" in
-                    y|Y|yes|YES) ;;
-                    *) exit 1 ;;
+
+        # ── 根据平台选择 Rust 安装方式 ──
+        case "$CURRENT_PLATFORM" in
+            ohos)
+                # ═══ HarmonyOS OHOS：安装鸿蒙版 Rust ═══
+                printf "  ${CYAN}是否自动安装 HarmonyOS 版 Rust v1.95.0？[Y/n]: ${NC}"
+                read -r rust_choice </dev/tty 2>/dev/null || rust_choice="y"
+                case "$rust_choice" in
+                    n|N|no|NO)
+                        warn "跳过 Rust 安装，请手动安装 Rust 后重新运行本脚本"
+                        warn "鸿蒙 PC 版 Rust 安装地址:"
+                        warn "  https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/download/v1.95.0/install.sh"
+                        echo ""
+                        printf "  ${CYAN}是否继续编译（若已有 Rust 工具链）？[y/N]: ${NC}"
+                        read -r skip_choice </dev/tty 2>/dev/null || skip_choice="n"
+                        case "$skip_choice" in
+                            y|Y|yes|YES) ;;
+                            *) exit 1 ;;
+                        esac
+                        ;;
+                    *)
+                        info "正在安装 HarmonyOS 版 Rust v1.95.0..."
+                        RUST_INSTALL_URL="https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/download/v1.95.0/install.sh"
+                        RUST_INSTALLER_DOWNLOADED=1
+                        if command -v curl >/dev/null 2>&1; then
+                            # 先尝试完整参数（支持 OpenSSL 的完整 curl）
+                            RUST_INSTALL_SCRIPT=$(curl -fsSL --retry 3 --connect-timeout 30 "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || \
+                            # 再尝试精简参数（busybox curl 不支持长选项）
+                            RUST_INSTALL_SCRIPT=$(curl -fsSL "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || \
+                            # 最后尝试跳过证书验证
+                            RUST_INSTALL_SCRIPT=$(curl -fsSLk "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || true
+                            if [ "$RUST_INSTALLER_DOWNLOADED" -eq 0 ] && [ -n "$RUST_INSTALL_SCRIPT" ]; then
+                                echo "$RUST_INSTALL_SCRIPT" | /bin/sh && {
+                                    ok "HarmonyOS Rust 安装成功"
+                                    RUST_INSTALLED=true
+                                } || {
+                                    warn "curl 下载脚本执行失败，尝试 wget..."
+                                    RUST_INSTALLER_DOWNLOADED=1
+                                }
+                            fi
+                            if [ "$RUST_INSTALLED" != true ]; then
+                                warn "curl 下载失败，尝试 wget..."
+                                RUST_INSTALLER_DOWNLOADED=1
+                            fi
+                        fi
+                        if [ "$RUST_INSTALLED" != true ] && command -v wget >/dev/null 2>&1; then
+                            TMP_SCRIPT="${HOME}/tmp/.rust-install-$$.sh"
+                            mkdir -p "${HOME}/tmp"
+                            # 先尝试带超时参数（GNU wget），不支持下则尝试精简参数（toybox wget）
+                            if wget -q -O "${TMP_SCRIPT}" --timeout=30 "${RUST_INSTALL_URL}" 2>/dev/null || \
+                               wget -q -O "${TMP_SCRIPT}" "${RUST_INSTALL_URL}" 2>/dev/null; then
+                                if /bin/sh "${TMP_SCRIPT}"; then
+                                    ok "HarmonyOS Rust 安装成功"
+                                    RUST_INSTALLED=true
+                                fi
+                            fi
+                            rm -f "${TMP_SCRIPT}"
+                        fi
+                        if [ "$RUST_INSTALLED" != true ]; then
+                            error "HarmonyOS Rust 安装失败"
+                            error "请手动安装:"
+                            error "  /bin/sh -c \"\$(curl -fsSL ${RUST_INSTALL_URL})\""
+                            error "或从以下地址下载 tar.gz 手动解压:"
+                            error "  https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/tag/v1.95.0"
+                            exit 1
+                        fi
+                        ;;
                 esac
                 ;;
             *)
-                info "正在安装 HarmonyOS 版 Rust v1.95.0..."
-                RUST_INSTALL_URL="https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/download/v1.95.0/install.sh"
-                RUST_INSTALLER_DOWNLOADED=1
-                if command -v curl >/dev/null 2>&1; then
-                    # 先尝试完整参数（支持 OpenSSL 的完整 curl）
-                    RUST_INSTALL_SCRIPT=$(curl -fsSL --retry 3 --connect-timeout 30 "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || \
-                    # 再尝试精简参数（busybox curl 不支持长选项）
-                    RUST_INSTALL_SCRIPT=$(curl -fsSL "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || \
-                    # 最后尝试跳过证书验证
-                    RUST_INSTALL_SCRIPT=$(curl -fsSLk "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || true
-                    if [ "$RUST_INSTALLER_DOWNLOADED" -eq 0 ] && [ -n "$RUST_INSTALL_SCRIPT" ]; then
-                        echo "$RUST_INSTALL_SCRIPT" | /bin/sh && {
-                            ok "HarmonyOS Rust 安装成功"
-                            RUST_INSTALLED=true
-                        } || {
-                            warn "curl 下载脚本执行失败，尝试 wget..."
-                            RUST_INSTALLER_DOWNLOADED=1
-                        }
-                    fi
-                    if [ "$RUST_INSTALLED" != true ]; then
-                        warn "curl 下载失败，尝试 wget..."
-                        # 重置标记
-                        RUST_INSTALLER_DOWNLOADED=1
-                    fi
-                fi
-                if [ "$RUST_INSTALLED" != true ] && command -v wget >/dev/null 2>&1; then
-                    # 下载脚本到临时文件（避免管道 pipe 掩盖 wget 错误）
-                    TMP_SCRIPT="${HOME}/tmp/.rust-install-$$.sh"
-                    mkdir -p "${HOME}/tmp"
-                    # 先尝试带超时参数（GNU wget），不支持下则尝试精简参数（toybox wget）
-                    if wget -q -O "${TMP_SCRIPT}" --timeout=30 "${RUST_INSTALL_URL}" 2>/dev/null || \
-                       wget -q -O "${TMP_SCRIPT}" "${RUST_INSTALL_URL}" 2>/dev/null; then
-                        if /bin/sh "${TMP_SCRIPT}"; then
-                            ok "HarmonyOS Rust 安装成功"
-                            RUST_INSTALLED=true
+                # ═══ 标准系统（Linux / macOS）：使用 rustup ═══
+                printf "  ${CYAN}是否自动安装 Rust（通过 rustup）？[Y/n]: ${NC}"
+                read -r rust_choice </dev/tty 2>/dev/null || rust_choice="y"
+                case "$rust_choice" in
+                    n|N|no|NO)
+                        warn "跳过 Rust 安装，请手动安装 Rust 后重新运行本脚本"
+                        warn "安装命令: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+                        echo ""
+                        printf "  ${CYAN}是否继续编译（若已有 Rust 工具链）？[y/N]: ${NC}"
+                        read -r skip_choice </dev/tty 2>/dev/null || skip_choice="n"
+                        case "$skip_choice" in
+                            y|Y|yes|YES) ;;
+                            *) exit 1 ;;
+                        esac
+                        ;;
+                    *)
+                        info "正在通过 rustup 安装 Rust..."
+                        if command -v curl >/dev/null 2>&1; then
+                            RUSTUP_SCRIPT=$(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs 2>/dev/null) && {
+                                echo "$RUSTUP_SCRIPT" | /bin/sh -s -- -y 2>/dev/null && {
+                                    ok "Rust 安装成功"
+                                    RUST_INSTALLED=true
+                                    export PATH="$HOME/.cargo/bin:$PATH"
+                                } || {
+                                    warn "rustup 安装失败"
+                                }
+                            } || {
+                                warn "curl 下载 rustup 失败"
+                            }
                         fi
-                    fi
-                    rm -f "${TMP_SCRIPT}"
-                fi
-                if [ "$RUST_INSTALLED" != true ]; then
-                    error "HarmonyOS Rust 安装失败"
-                    error "请手动安装:"
-                    error "  /bin/sh -c \"\$(curl -fsSL ${RUST_INSTALL_URL})\""
-                    error "或从以下地址下载 tar.gz 手动解压:"
-                    error "  https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/tag/v1.95.0"
-                    exit 1
-                fi
+                        if [ "$RUST_INSTALLED" != true ] && command -v wget >/dev/null 2>&1; then
+                            TMP_SCRIPT="${HOME}/tmp/.rustup-$$.sh"
+                            mkdir -p "${HOME}/tmp"
+                            if wget -q -O "${TMP_SCRIPT}" https://sh.rustup.rs 2>/dev/null; then
+                                /bin/sh "${TMP_SCRIPT}" -y 2>/dev/null && {
+                                    ok "Rust 安装成功"
+                                    RUST_INSTALLED=true
+                                    export PATH="$HOME/.cargo/bin:$PATH"
+                                }
+                            fi
+                            rm -f "${TMP_SCRIPT}"
+                        fi
+                        if [ "$RUST_INSTALLED" != true ]; then
+                            error "Rust 安装失败"
+                            error "请手动安装:"
+                            error "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+                            exit 1
+                        fi
+                        ;;
+                esac
                 ;;
         esac
     fi
