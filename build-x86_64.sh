@@ -131,6 +131,7 @@ fi
 info "编译 Linux x86_64 版本..."
 export CC=gcc
 cargo build --release --target "$TARGET"
+mkdir -p target/release
 cp "target/$TARGET/release/ohosHttp" "target/release/ohosHttp-x86_64-linux"
 
 echo ""

@@ -70,8 +70,19 @@ if [ "$REBUILD" -eq 1 ]; then
     cargo clean --target "$TARGET"
 fi
 
+if command -v rustup >/dev/null 2>&1; then
+    if ! rustup target list --installed 2>/dev/null | grep -q "^$TARGET$"; then
+        info "安装目标: $TARGET ..."
+        rustup target add "$TARGET"
+        ok "目标安装完成: $TARGET"
+    else
+        ok "目标已安装: $TARGET"
+    fi
+fi
+
 info "编译 HarmonyOS (OpenHarmony) ARM64 版本..."
 cargo build --release --target "$TARGET"
+mkdir -p target/release
 cp "target/$TARGET/release/ohosHttp" "target/release/ohosHttp-aarch64-ohos"
 
 echo ""

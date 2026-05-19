@@ -164,6 +164,7 @@ else
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="aarch64-linux-gnu-gcc" \
     cargo build --release --target "$TARGET"
 fi
+mkdir -p target/release
 cp "target/$TARGET/release/ohosHttp" "target/release/ohosHttp-aarch64-linux"
 
 echo ""
