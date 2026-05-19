@@ -237,6 +237,87 @@ if [ -z "$BINARY_SOURCE" ]; then
         esac
     fi
 
+    # ── Rust 安装后：验证工具链 & 持久化 PATH & 设置默认 toolchain ──
+    if [ "$RUST_INSTALLED" = true ]; then
+        # 1) 找到 Rust 二进制目录（优先 rustup 的 ~/.cargo/bin，其次 OHOS 独立工具链）
+        RUST_BIN_DIR=""
+        if [ -d "$HOME/.cargo/bin" ] && \
+           ls "$HOME/.cargo/bin/rustc" >/dev/null 2>&1; then
+            RUST_BIN_DIR="$HOME/.cargo/bin"
+        elif [ -d "$HOME/usr/rust-"*/bin ] && \
+             ls $HOME/usr/rust-*/bin/rustc >/dev/null 2>&1; then
+            RUST_BIN_DIR="$(echo $HOME/usr/rust-*/bin | cut -d' ' -f1)"
+        fi
+
+        if [ -n "$RUST_BIN_DIR" ]; then
+            export PATH="$RUST_BIN_DIR:$PATH"
+        fi
+
+        # 2) 处理 rustup（如果存在）→ 确保有默认 toolchain
+        if command -v rustup >/dev/null 2>&1; then
+            DEFAULT_TC=$(rustup default 2>/dev/null || echo "")
+            if [ -z "$DEFAULT_TC" ]; then
+                INSTALLED_TC=$(rustup toolchain list 2>/dev/null | head -1 | awk '{print $1}')
+                if [ -n "$INSTALLED_TC" ]; then
+                    info "设置 Rust 默认 toolchain: ${INSTALLED_TC}"
+                    rustup default "$INSTALLED_TC" 2>/dev/null && \
+                        ok "默认 toolchain 已设为: ${INSTALLED_TC}"
+                else
+                    warn "未找到已安装的 Rust toolchain，尝试安装 stable..."
+                    rustup install stable 2>/dev/null && \
+                        rustup default stable 2>/dev/null && \
+                        ok "已安装并设置 stable 为默认 toolchain"
+                fi
+            else
+                ok "Rust 默认 toolchain: ${DEFAULT_TC}"
+            fi
+        fi
+
+        # 3) 验证 rustc 可用
+        if command -v rustc >/dev/null 2>&1; then
+            ok "Rust 工具链就绪: $(rustc --version 2>/dev/null | head -1)"
+        else
+            warn "rustc 不在 PATH 中。请手动添加到 PATH:"
+            warn "  export PATH=\"${RUST_BIN_DIR:-\$HOME/.cargo/bin}:\$PATH\""
+
+            echo ""
+            printf "  ${YELLOW}是否自动将 Rust 添加到 PATH？[Y/n]: ${NC}"
+            read -r path_choice </dev/tty 2>/dev/null || path_choice="y"
+            case "$path_choice" in
+                n|N|no|NO)
+                    warn "跳过了，请手动添加: export PATH=\"${RUST_BIN_DIR:-\$HOME/.cargo/bin}:\$PATH\""
+                    ;;
+                *)
+                    # 检测 shell 配置文件
+                    _rp=""
+                    if [ -n "$BASH" ] && [ -f "$HOME/.bashrc" ]; then
+                        _rp="$HOME/.bashrc"
+                    elif [ -n "$ZSH_VERSION" ] && [ -f "$HOME/.zshrc" ]; then
+                        _rp="$HOME/.zshrc"
+                    elif [ -f "$HOME/.profile" ]; then
+                        _rp="$HOME/.profile"
+                    fi
+                    if [ -n "$_rp" ]; then
+                        _line="export PATH=\"${RUST_BIN_DIR:-\$HOME/.cargo/bin}:\$PATH\""
+                        if ! grep -q "cargo/bin" "$_rp" 2>/dev/null; then
+                            echo "" >> "$_rp"
+                            echo "# Rust PATH（由 ohosHttp 安装脚本添加）" >> "$_rp"
+                            echo "$_line" >> "$_rp"
+                            ok "已添加 Rust PATH 到 ${_rp}"
+                        else
+                            ok "Rust PATH 已在 ${_rp} 中"
+                        fi
+                    else
+                        warn "未找到 shell 配置文件，请手动添加:"
+                        warn "  export PATH=\"${RUST_BIN_DIR:-\$HOME/.cargo/bin}:\$PATH\""
+                    fi
+                    export PATH="${RUST_BIN_DIR:-\$HOME/.cargo/bin}:$PATH"
+                    ok "当前会话已添加 Rust PATH"
+                    ;;
+            esac
+        fi
+    fi
+
     # ── 提前检测 shell 配置文件（供 CC 配置持久化使用） ──
     SHELL_PROFILE=""
     if [ -n "$BASH" ] && [ -f "$HOME/.bashrc" ]; then
@@ -298,9 +379,16 @@ CCWRAP
         CC_CONFIGURED=true
     fi
 
-    # 将 cargo/bin 加入 PATH（鸿蒙 Rust 安装脚本可能已添加，确保可用）
-    export PATH="$HOME/.cargo/bin:$PATH"
-    export PATH="$HOME/usr/rust-1.95.0-aarch64-unknown-linux-ohos/bin:$PATH"
+    # 确保 Rust 在 PATH 中（动态检测，不依赖硬编码版本号）
+    if [ -d "$HOME/.cargo/bin" ]; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+    for _rd in "$HOME/usr/rust-"*/bin; do
+        if [ -f "$_rd/rustc" ]; then
+            export PATH="$_rd:$PATH"
+            break
+        fi
+    done
 
     # ── 配置国内 Rust 镜像加速（解决鸿蒙设备无法访问 crates.io） ──
     info "配置 Rust crates.io 国内镜像..."
