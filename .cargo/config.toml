@@ -30,3 +30,8 @@ registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
 # ---- 上海交通大学 SJTUG 镜像 ----
 # [source.sjtug]
 # registry = "sparse+https://mirrors.sjtug.sjtu.edu.cn/git/crates.io-index/"
+
+# ---- 链接器配置 ----
+# HarmonyOS PC 环境的 cc wrapper 不识别 gcc，显式指定使用系统 gcc
+[target.x86_64-unknown-linux-gnu]
+linker = "gcc"
