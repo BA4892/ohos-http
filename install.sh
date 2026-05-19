@@ -255,6 +255,11 @@ if [ -z "$BINARY_SOURCE" ]; then
 
         # 2) 处理 rustup（如果存在）→ 确保有默认 toolchain
         if command -v rustup >/dev/null 2>&1; then
+            # 辅助函数：检测 toolchain 是否损坏（Missing manifest）
+            _tc_is_broken() {
+                rustc --version 2>&1 | grep -qi "missing manifest" >/dev/null 2>&1
+            }
+
             DEFAULT_TC=$(rustup default 2>/dev/null || echo "")
             if [ -z "$DEFAULT_TC" ]; then
                 INSTALLED_TC=$(rustup toolchain list 2>/dev/null | head -1 | awk '{print $1}')
@@ -270,6 +275,22 @@ if [ -z "$BINARY_SOURCE" ]; then
                 fi
             else
                 ok "Rust 默认 toolchain: ${DEFAULT_TC}"
+            fi
+
+            # 验证默认 toolchain 是否可用（修复 Missing manifest 问题）
+            if _tc_is_broken; then
+                BROKEN_TC=$(rustup default 2>/dev/null | awk '{print $1}')
+                warn "检测到 toolchain '${BROKEN_TC}' 损坏（Missing manifest）"
+                warn "正在重新安装该 toolchain..."
+                rustup toolchain remove "${BROKEN_TC}" 2>/dev/null || true
+                if rustup install "${BROKEN_TC}" 2>/dev/null; then
+                    ok "Toolchain '${BROKEN_TC}' 重新安装成功"
+                else
+                    warn "重新安装 '${BROKEN_TC}' 失败，尝试安装 stable..."
+                    rustup install stable 2>/dev/null && \
+                        rustup default stable 2>/dev/null && \
+                        ok "已安装并设置 stable 为默认 toolchain"
+                fi
             fi
         fi
 
