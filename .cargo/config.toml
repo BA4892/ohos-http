@@ -1,0 +1,32 @@
+# ============================================================
+# ohosHttp - Rust 镜像配置
+# 解决鸿蒙系统（HarmonyOS）国内网络无法访问 crates.io 的问题
+#
+# 默认使用清华大学 tuna 镜像（sparse 协议，速度快）
+# 可选镜像（取消注释切换）：
+#   中国科学技术大学 (USTC):  mirrors.ustc.edu.cn
+#   字节跳动 (RustCC):       mirrors.rustcc.cn
+#   上海交通大学 (SJTU):     mirrors.sjtug.sjtu.edu.cn
+# ============================================================
+
+[registries]
+crates-io = { protocol = "sparse" }
+
+[source.crates-io]
+replace-with = "tuna"
+
+# ---- 清华大学 TUNA 镜像 ----
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+
+# ---- 中国科学技术大学 USTC 镜像 ----
+# [source.ustc]
+# registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+
+# ---- 字节跳动 RustCC 镜像 ----
+# [source.rustcc]
+# registry = "sparse+https://mirrors.rustcc.cn/crates.io-index/"
+
+# ---- 上海交通大学 SJTUG 镜像 ----
+# [source.sjtug]
+# registry = "sparse+https://mirrors.sjtug.sjtu.edu.cn/git/crates.io-index/"

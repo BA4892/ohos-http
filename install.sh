@@ -194,6 +194,37 @@ CCWRAP
     export PATH="$HOME/.cargo/bin:$PATH"
     export PATH="$HOME/usr/rust-1.95.0-aarch64-unknown-linux-ohos/bin:$PATH"
 
+    # ── 配置国内 Rust 镜像加速（解决鸿蒙设备无法访问 crates.io） ──
+    info "配置 Rust crates.io 国内镜像..."
+    CARGO_CONFIG_DIR="$HOME/.cargo"
+    PROJECT_CARGO_CONFIG="$SCRIPT_DIR/.cargo/config.toml"
+    if [ ! -f "$CARGO_CONFIG_DIR/config.toml" ]; then
+        mkdir -p "$CARGO_CONFIG_DIR"
+        if [ -f "$PROJECT_CARGO_CONFIG" ]; then
+            cp "$PROJECT_CARGO_CONFIG" "$CARGO_CONFIG_DIR/config.toml"
+            ok "已配置 Rust 国内镜像源（清华大学 tuna）: $CARGO_CONFIG_DIR/config.toml"
+        else
+            cat > "$CARGO_CONFIG_DIR/config.toml" << 'CARGOEOF'
+[registries]
+crates-io = { protocol = "sparse" }
+
+[source.crates-io]
+replace-with = "tuna"
+
+[source.tuna]
+registry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+CARGOEOF
+            ok "已创建 Rust 国内镜像配置（清华大学 tuna）"
+        fi
+    else
+        ok "Rust 镜像配置已存在: $CARGO_CONFIG_DIR/config.toml"
+    fi
+
+    # 项目级 .cargo/config.toml 也已就绪
+    if [ -f "$PROJECT_CARGO_CONFIG" ]; then
+        ok "项目级 Rust 镜像配置已就绪: $PROJECT_CARGO_CONFIG"
+    fi
+
     # 检查 build.sh 是否存在
     if [ ! -f "$SCRIPT_DIR/build.sh" ]; then
         error "找不到 build.sh 构建脚本！"
