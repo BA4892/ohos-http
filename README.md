@@ -186,7 +186,18 @@ chmod +x build.sh
 # 构建 x86_64 Linux 版本（需安装对应 target）
 # rustup target add x86_64-unknown-linux-gnu
 # ./build.sh x86_64-unknown-linux-gnu
+
+# 重新编译（安装系统依赖 + clean 构建）
+./build.sh --rebuild
+
+# 或在特定平台脚本上使用
+# ./build-x86_64.sh --rebuild    # Linux x86_64
+# ./build-arm.sh --rebuild       # Linux ARM64 本地/交叉编译
+# ./build-ohos.sh --rebuild      # HarmonyOS ARM64
 ```
+
+> `--rebuild` 参数会自动检测并安装缺少的系统依赖（如 gcc、build-essential），
+> 然后执行 `cargo clean` 从头编译。生产服务器上遇到编译失败时推荐使用此模式。
 
 ## 项目结构
 

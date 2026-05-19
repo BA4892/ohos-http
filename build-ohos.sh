@@ -1,7 +1,8 @@
 #!/bin/sh
 # ============================================================
 # ohosHttp - HarmonyOS/OpenHarmony ARM64 专用构建脚本
-# 用法: ./build-ohos.sh
+# 用法: ./build-ohos.sh [--rebuild]
+#   --rebuild  重新编译（clean 构建）
 # ============================================================
 
 set -e
