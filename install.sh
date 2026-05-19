@@ -23,9 +23,9 @@ error() { printf "${RED}[ERROR]${NC} %s\n" "$*"; }
 # ---- 横幅 ----
 cat << 'BANNER'
 =========================================
-  ohosHttp v1.3.1 - 鸿蒙系统一键安装
+  ohosHttp v1.3.1 - 一键安装
   高性能 HTTP 服务器
-  HarmonyOS ARM64
+  支持 HarmonyOS / Linux / macOS
 =========================================
 BANNER
 
@@ -77,7 +77,7 @@ ok "目录创建完成"
 # ---- 步骤 2: 安装二进制文件 ----
 info "安装 ohosHttp 二进制..."
 
-# 查找二进制文件（支持 build.sh 所有输出名）
+# 查找二进制文件（支持平台专用构建脚本的输出名）
 BINARY_SOURCE=""
 for candidate in \
     "$SCRIPT_DIR/target/release/ohosHttp" \
@@ -87,21 +87,39 @@ for candidate in \
     "$SCRIPT_DIR/target/release/ohosHttp-aarch64-darwin" \
     "$SCRIPT_DIR/target/release/ohosHttp-x86_64-darwin" \
     "$SCRIPT_DIR/ohosHttp" \
-    "$SCRIPT_DIR/ohosHttp-aarch64-ohos" \
     "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp" \
+    "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/ohosHttp" \
     "$SCRIPT_DIR/target/x86_64-unknown-linux-gnu/release/ohosHttp"; do
     if [ -f "$candidate" ] && [ -x "$candidate" ]; then
         BINARY_SOURCE="$candidate"
         break
     fi
 done
-
-# 如果未找到二进制，调用 build.sh 源码编译
 if [ -z "$BINARY_SOURCE" ]; then
     warn "未找到预编译的 ohosHttp 二进制"
     echo ""
-    printf "  ${YELLOW}将调用 build.sh 从源代码编译...${NC}\n"
+    printf "  ${YELLOW}将调用平台专用脚本从源代码编译...${NC}\n"
     echo ""
+
+    # ── 根据平台确定构建脚本 ──
+    case "$CURRENT_PLATFORM" in
+        ohos)
+            BUILD_SCRIPT="build-ohos.sh"
+            ;;
+        linux-x86_64)
+            BUILD_SCRIPT="build-x86_64.sh"
+            ;;
+        linux-aarch64)
+            BUILD_SCRIPT="build-arm.sh"
+            ;;
+        darwin-x86_64|darwin-arm64)
+            # macOS 无专用脚本，直接使用 build.sh
+            BUILD_SCRIPT="build.sh"
+            ;;
+        *)
+            BUILD_SCRIPT="build.sh"
+            ;;
+    esac
 
     # ── 检查 Rust 工具链 ──
     info "检查 Rust 工具链..."
@@ -442,11 +460,14 @@ CARGOEOF
         ok "项目级 Rust 镜像配置已就绪: $PROJECT_CARGO_CONFIG"
     fi
 
-    # 检查 build.sh 是否存在
-    if [ ! -f "$SCRIPT_DIR/build.sh" ]; then
-        error "找不到 build.sh 构建脚本！"
+    # 检查平台构建脚本是否存在
+    if [ ! -f "$SCRIPT_DIR/$BUILD_SCRIPT" ]; then
+        error "找不到 $BUILD_SCRIPT 构建脚本！"
         error "请从 https://gitcode.com/cncoder/ohos-http/releases 下载预编译二进制"
-        error "或手动克隆完整仓库后重新运行安装脚本"
+        error "或选择对应平台的构建脚本:"
+        error "  Linux x86_64:    ./build-x86_64.sh"
+        error "  Linux ARM64:     ./build-arm.sh"
+        error "  HarmonyOS ARM64: ./build-ohos.sh"
         exit 1
     fi
 
@@ -463,11 +484,11 @@ CARGOEOF
         *)
             echo ""
             info "开始编译..."
-            # 执行 build.sh 自动检测系统并编译
-            if [ -x "$SCRIPT_DIR/build.sh" ]; then
-                "$SCRIPT_DIR/build.sh"
+            info "脚本: ./$BUILD_SCRIPT"
+            if [ -x "$SCRIPT_DIR/$BUILD_SCRIPT" ]; then
+                "$SCRIPT_DIR/$BUILD_SCRIPT"
             else
-                sh "$SCRIPT_DIR/build.sh"
+                sh "$SCRIPT_DIR/$BUILD_SCRIPT"
             fi
             BUILD_EXIT=$?
             if [ "$BUILD_EXIT" -ne 0 ]; then
@@ -487,7 +508,9 @@ CARGOEOF
         "$SCRIPT_DIR/target/release/ohosHttp-aarch64-linux" \
         "$SCRIPT_DIR/target/release/ohosHttp-aarch64-darwin" \
         "$SCRIPT_DIR/target/release/ohosHttp-x86_64-darwin" \
-        "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp"; do
+        "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp" \
+        "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/ohosHttp" \
+        "$SCRIPT_DIR/target/x86_64-unknown-linux-gnu/release/ohosHttp"; do
         if [ -f "$candidate" ] && [ -x "$candidate" ]; then
             BINARY_SOURCE="$candidate"
             break
