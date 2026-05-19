@@ -107,6 +107,7 @@ fi
 step "步骤 3/3: 编译 $TARGET"
 
 info "编译 Linux x86_64 版本..."
+export CC=gcc
 cargo build --release --target "$TARGET"
 cp "target/$TARGET/release/ohosHttp" "target/release/ohosHttp-x86_64-linux"
 
