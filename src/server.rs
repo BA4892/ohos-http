@@ -161,6 +161,7 @@ impl HttpServer {
                                                 let conn = hyper::server::conn::http2::Builder::new(
                                                     hyper_util::rt::TokioExecutor::new()
                                                 )
+                                                .timer(hyper_util::rt::TokioTimer::new())
                                                 .keep_alive_interval(Some(std::time::Duration::from_secs(30)))
                                                 .serve_connection(io, service);
 
