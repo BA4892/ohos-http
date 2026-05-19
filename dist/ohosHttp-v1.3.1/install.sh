@@ -102,41 +102,63 @@ if [ -z "$BINARY_SOURCE" ]; then
             *)
                 info "正在安装 HarmonyOS 版 Rust v1.95.0..."
                 RUST_INSTALL_URL="https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/download/v1.95.0/install.sh"
+                RUST_INSTALLER_DOWNLOADED=1
                 if command -v curl >/dev/null 2>&1; then
-                    if /bin/sh -c "$(curl -fsSL --retry 3 --connect-timeout 30 "${RUST_INSTALL_URL}")"; then
-                        ok "HarmonyOS Rust 安装成功"
-                        RUST_INSTALLED=true
-                    else
-                        warn "curl 安装失败，尝试 wget..."
-                        if command -v wget >/dev/null 2>&1; then
-                            if /bin/sh -c "$(wget -qO- --timeout=30 "${RUST_INSTALL_URL}")"; then
-                                ok "HarmonyOS Rust 安装成功"
-                                RUST_INSTALLED=true
-                            fi
-                        fi
-                        if [ "$RUST_INSTALLED" != true ]; then
-                            error "HarmonyOS Rust 安装失败"
-                            error "请手动安装:"
-                            error "  /bin/sh -c \"\$(curl -fsSL ${RUST_INSTALL_URL})\""
-                            exit 1
+                    # 先尝试完整参数（支持 OpenSSL 的完整 curl）
+                    RUST_INSTALL_SCRIPT=$(curl -fsSL --retry 3 --connect-timeout 30 "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || \
+                    # 再尝试精简参数（busybox curl 不支持长选项）
+                    RUST_INSTALL_SCRIPT=$(curl -fsSL "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || \
+                    # 最后尝试跳过证书验证
+                    RUST_INSTALL_SCRIPT=$(curl -fsSLk "${RUST_INSTALL_URL}" 2>/dev/null) && RUST_INSTALLER_DOWNLOADED=0 || true
+                    if [ "$RUST_INSTALLER_DOWNLOADED" -eq 0 ] && [ -n "$RUST_INSTALL_SCRIPT" ]; then
+                        echo "$RUST_INSTALL_SCRIPT" | /bin/sh && {
+                            ok "HarmonyOS Rust 安装成功"
+                            RUST_INSTALLED=true
+                        } || {
+                            warn "curl 下载脚本执行失败，尝试 wget..."
+                            RUST_INSTALLER_DOWNLOADED=1
+                        }
+                    fi
+                    if [ "$RUST_INSTALLED" != true ]; then
+                        warn "curl 下载失败，尝试 wget..."
+                        # 重置标记
+                        RUST_INSTALLER_DOWNLOADED=1
+                    fi
+                fi
+                if [ "$RUST_INSTALLED" != true ] && command -v wget >/dev/null 2>&1; then
+                    # 下载脚本到临时文件（避免管道 pipe 掩盖 wget 错误）
+                    TMP_SCRIPT="${HOME}/tmp/.rust-install-$$.sh"
+                    mkdir -p "${HOME}/tmp"
+                    # 先尝试带超时参数（GNU wget），不支持下则尝试精简参数（toybox wget）
+                    if wget -q -O "${TMP_SCRIPT}" --timeout=30 "${RUST_INSTALL_URL}" 2>/dev/null || \
+                       wget -q -O "${TMP_SCRIPT}" "${RUST_INSTALL_URL}" 2>/dev/null; then
+                        if /bin/sh "${TMP_SCRIPT}"; then
+                            ok "HarmonyOS Rust 安装成功"
+                            RUST_INSTALLED=true
                         fi
                     fi
-                elif command -v wget >/dev/null 2>&1; then
-                    if /bin/sh -c "$(wget -qO- --timeout=30 "${RUST_INSTALL_URL}")"; then
-                        ok "HarmonyOS Rust 安装成功"
-                        RUST_INSTALLED=true
-                    else
-                        error "HarmonyOS Rust 安装失败"
-                        exit 1
-                    fi
-                else
-                    error "找不到 curl 或 wget，无法下载"
-                    error "请手动安装 Rust:"
+                    rm -f "${TMP_SCRIPT}"
+                fi
+                if [ "$RUST_INSTALLED" != true ]; then
+                    error "HarmonyOS Rust 安装失败"
+                    error "请手动安装:"
                     error "  /bin/sh -c \"\$(curl -fsSL ${RUST_INSTALL_URL})\""
+                    error "或从以下地址下载 tar.gz 手动解压:"
+                    error "  https://gitcode.com/OpenHarmonyPCDeveloper/rust/releases/tag/v1.95.0"
                     exit 1
                 fi
                 ;;
         esac
+    fi
+
+    # ── 提前检测 shell 配置文件（供 CC 配置持久化使用） ──
+    SHELL_PROFILE=""
+    if [ -n "$BASH" ] && [ -f "$HOME/.bashrc" ]; then
+        SHELL_PROFILE="$HOME/.bashrc"
+    elif [ -n "$ZSH_VERSION" ] && [ -f "$HOME/.zshrc" ]; then
+        SHELL_PROFILE="$HOME/.zshrc"
+    elif [ -f "$HOME/.profile" ]; then
+        SHELL_PROFILE="$HOME/.profile"
     fi
 
     # ── 处理鸿蒙 PC 无 CC（C 编译器）问题 ──
