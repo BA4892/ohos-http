@@ -122,10 +122,12 @@ step "步骤 3/3: 编译 $TARGET"
 
 info "编译 Linux ARM64 版本..."
 if [ "$IS_NATIVE" -eq 1 ]; then
+    export CC=gcc
     cargo build --release --target "$TARGET"
 else
-    # x86_64 → aarch64 交叉编译，设置 C 链接器
+    # x86_64 → aarch64 交叉编译，设置 C 编译器与链接器
     info "交叉编译模式，使用 aarch64-linux-gnu-gcc 链接器..."
+    export CC=aarch64-linux-gnu-gcc
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="aarch64-linux-gnu-gcc" \
     cargo build --release --target "$TARGET"
 fi
