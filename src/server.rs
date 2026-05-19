@@ -250,11 +250,17 @@ async fn create_tcp_listener(addr: SocketAddr) -> Result<TcpListener, Box<dyn st
 fn load_tls_config(cert_path: &str, key_path: &str) -> Result<Arc<rustls::ServerConfig>, Box<dyn std::error::Error + Send + Sync>> {
     use rustls::pki_types::CertificateDer;
 
-    let cert_file = &mut std::io::BufReader::new(fs::File::open(cert_path)?);
+    let cert_file = &mut std::io::BufReader::new(
+        fs::File::open(cert_path)
+            .map_err(|e| format!("无法打开 TLS 证书文件 '{}': {}", cert_path, e))?,
+    );
     let certs: Vec<CertificateDer> = rustls_pemfile::certs(cert_file)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let key_file = &mut std::io::BufReader::new(fs::File::open(key_path)?);
+    let key_file = &mut std::io::BufReader::new(
+        fs::File::open(key_path)
+            .map_err(|e| format!("无法打开 TLS 私钥文件 '{}': {}", key_path, e))?,
+    );
     let key = rustls_pemfile::private_key(key_file)
         .map_err(|e| format!("读取私钥失败: {}", e))?
         .ok_or_else(|| "未找到私钥".to_string())?;
@@ -279,11 +285,17 @@ fn load_tls_config(cert_path: &str, key_path: &str) -> Result<Arc<rustls::Server
 fn load_tls_config_for_h3(cert_path: &str, key_path: &str) -> Result<quinn::crypto::rustls::QuicServerConfig, Box<dyn std::error::Error + Send + Sync>> {
     use rustls::pki_types::CertificateDer;
 
-    let cert_file = &mut std::io::BufReader::new(fs::File::open(cert_path)?);
+    let cert_file = &mut std::io::BufReader::new(
+        fs::File::open(cert_path)
+            .map_err(|e| format!("无法打开 TLS 证书文件 (h3) '{}': {}", cert_path, e))?,
+    );
     let certs: Vec<CertificateDer> = rustls_pemfile::certs(cert_file)
         .collect::<Result<Vec<_>, _>>()?;
 
-    let key_file = &mut std::io::BufReader::new(fs::File::open(key_path)?);
+    let key_file = &mut std::io::BufReader::new(
+        fs::File::open(key_path)
+            .map_err(|e| format!("无法打开 TLS 私钥文件 (h3) '{}': {}", key_path, e))?,
+    );
     let key = rustls_pemfile::private_key(key_file)
         .map_err(|e| format!("读取私钥失败: {}", e))?
         .ok_or_else(|| "未找到私钥".to_string())?;
