@@ -1,7 +1,8 @@
 #!/bin/sh
 # ============================================================
 # ohosHttp - Linux ARM64 (aarch64) 专用构建脚本
-# 用法: ./build-arm.sh
+# 用法: ./build-arm.sh [--rebuild]
+#   --rebuild  重新编译（安装系统依赖 + clean 构建）
 # 注意: 在 x86_64 主机上交叉编译需要安装 aarch64 交叉编译器
 # ============================================================
 
@@ -20,6 +21,12 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 TARGET="aarch64-unknown-linux-gnu"
 
+# ---- 解析参数 ----
+REBUILD=0
+for arg in "$@"; do
+    [ "$arg" = "--rebuild" ] && REBUILD=1
+done
+
 # 判断是否在 ARM64 本地构建
 HOST_ARCH="$(uname -m)"
 IS_NATIVE=0
@@ -28,9 +35,10 @@ if [ "$HOST_ARCH" = "aarch64" ] || [ "$HOST_ARCH" = "arm64" ]; then
 fi
 
 # ============================================================
-# 步骤 1: 安装系统依赖
+# 步骤 1: 安装系统依赖（仅 --rebuild 时执行）
 # ============================================================
-step "步骤 1/3: 安装系统依赖"
+if [ "$REBUILD" -eq 1 ]; then
+    step "步骤 1/3: 安装系统依赖"
 
 install_base_deps() {
     if [ "$IS_NATIVE" -eq 1 ]; then
@@ -69,6 +77,26 @@ install_base_deps() {
     fi
 }
 install_base_deps
+
+fi  # [ "$REBUILD" -eq 1 ]
+
+# 非 --rebuild 模式：只检查关键命令
+if [ "$REBUILD" -eq 0 ]; then
+    if [ "$IS_NATIVE" -eq 1 ]; then
+        if ! command -v gcc >/dev/null 2>&1; then
+            warn "未检测到 gcc，编译可能失败。请运行以下命令安装依赖后重试："
+            warn "  - Debian/Ubuntu: sudo apt-get install -y build-essential"
+            warn "  - Fedora:        sudo dnf install -y gcc gcc-c++"
+            warn "  - 或者直接使用:  $0 --rebuild  (自动安装依赖)"
+        fi
+    else
+        if ! command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+            warn "未检测到 aarch64-linux-gnu-gcc，交叉编译需要安装交叉编译工具链："
+            warn "  - Debian/Ubuntu: sudo apt-get install -y gcc-aarch64-linux-gnu"
+            warn "  - 或者直接使用:  $0 --rebuild  (自动安装依赖和交叉工具链)"
+        fi
+    fi
+fi
 
 # ============================================================
 # 步骤 2: 安装 Rust（通过 rustup）
@@ -119,6 +147,11 @@ fi
 # 步骤 3: 编译
 # ============================================================
 step "步骤 3/3: 编译 $TARGET"
+
+if [ "$REBUILD" -eq 1 ]; then
+    info "执行 clean 构建..."
+    cargo clean --target "$TARGET"
+fi
 
 info "编译 Linux ARM64 版本..."
 if [ "$IS_NATIVE" -eq 1 ]; then

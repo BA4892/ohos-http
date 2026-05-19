@@ -1,7 +1,8 @@
 #!/bin/sh
 # ============================================================
 # ohosHttp - Linux x86_64 专用构建脚本
-# 用法: ./build-x86_64.sh
+# 用法: ./build-x86_64.sh [--rebuild]
+#   --rebuild  重新编译（安装系统依赖 + clean 构建）
 # ============================================================
 
 set -e
@@ -19,40 +20,56 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 TARGET="x86_64-unknown-linux-gnu"
 
-# ============================================================
-# 步骤 1: 安装系统依赖
-# ============================================================
-step "步骤 1/3: 安装系统依赖"
+# ---- 解析参数 ----
+REBUILD=0
+for arg in "$@"; do
+    [ "$arg" = "--rebuild" ] && REBUILD=1
+done
 
-if command -v apt-get >/dev/null 2>&1; then
-    info "检测到 Debian/Ubuntu 系，安装依赖..."
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq \
-        build-essential \
-        cmake \
-        pkg-config \
-        libssl-dev \
-        llvm-dev \
-        libclang-dev \
-        curl 2>&1 | tail -1
-    ok "系统依赖安装完成"
-elif command -v dnf >/dev/null 2>&1; then
-    info "检测到 Fedora 系，安装依赖..."
-    sudo dnf install -y \
-        gcc gcc-c++ cmake pkgconfig openssl-devel llvm-devel clang-devel curl
-    ok "系统依赖安装完成"
-elif command -v yum >/dev/null 2>&1; then
-    info "检测到 RHEL/CentOS 系，安装依赖..."
-    sudo yum install -y \
-        gcc gcc-c++ cmake pkgconfig openssl-devel llvm-devel clang-devel curl
-    ok "系统依赖安装完成"
-elif command -v pacman >/dev/null 2>&1; then
-    info "检测到 Arch 系，安装依赖..."
-    sudo pacman -S --noconfirm --needed \
-        base-devel cmake pkg-config openssl llvm clang curl
-    ok "系统依赖安装完成"
+# ============================================================
+# 步骤 1: 安装系统依赖（仅 --rebuild 时执行）
+# ============================================================
+if [ "$REBUILD" -eq 1 ]; then
+    step "步骤 1/3: 安装系统依赖"
+
+    if command -v apt-get >/dev/null 2>&1; then
+        info "检测到 Debian/Ubuntu 系，安装依赖..."
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq \
+            build-essential \
+            cmake \
+            pkg-config \
+            libssl-dev \
+            llvm-dev \
+            libclang-dev \
+            curl 2>&1 | tail -1
+        ok "系统依赖安装完成"
+    elif command -v dnf >/dev/null 2>&1; then
+        info "检测到 Fedora 系，安装依赖..."
+        sudo dnf install -y \
+            gcc gcc-c++ cmake pkgconfig openssl-devel llvm-devel clang-devel curl
+        ok "系统依赖安装完成"
+    elif command -v yum >/dev/null 2>&1; then
+        info "检测到 RHEL/CentOS 系，安装依赖..."
+        sudo yum install -y \
+            gcc gcc-c++ cmake pkgconfig openssl-devel llvm-devel clang-devel curl
+        ok "系统依赖安装完成"
+    elif command -v pacman >/dev/null 2>&1; then
+        info "检测到 Arch 系，安装依赖..."
+        sudo pacman -S --noconfirm --needed \
+            base-devel cmake pkg-config openssl llvm clang curl
+        ok "系统依赖安装完成"
+    else
+        warn "未识别的包管理器，请确保已安装: gcc, cmake, pkg-config, libssl-dev, curl, llvm-dev, libclang-dev"
+    fi
 else
-    warn "未识别的包管理器，请确保已安装: gcc, cmake, pkg-config, libssl-dev, curl, llvm-dev, libclang-dev"
+    # 不安装依赖，只检查关键命令
+    if ! command -v gcc >/dev/null 2>&1; then
+        warn "未检测到 gcc，编译可能失败。请运行以下命令安装依赖后重试："
+        warn "  - Debian/Ubuntu: sudo apt-get install -y build-essential"
+        warn "  - Fedora:        sudo dnf install -y gcc gcc-c++"
+        warn "  - 或者直接使用:  $0 --rebuild  (自动安装依赖)"
+    fi
 fi
 
 # ============================================================
@@ -105,6 +122,11 @@ fi
 # 步骤 3: 编译
 # ============================================================
 step "步骤 3/3: 编译 $TARGET"
+
+if [ "$REBUILD" -eq 1 ]; then
+    info "执行 clean 构建..."
+    cargo clean --target "$TARGET"
+fi
 
 info "编译 Linux x86_64 版本..."
 export CC=gcc

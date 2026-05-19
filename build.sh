@@ -20,6 +20,16 @@ error() { printf "${RED}[ERROR]${NC} %s\n" "$*"; }
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ---- 解析参数 ----
+REBUILD=0
+TARGET=""
+for arg in "$@"; do
+    case "$arg" in
+        --rebuild) REBUILD=1 ;;
+        *) TARGET="$arg" ;;  # 最后一个非标志参数作为目标三元组
+    esac
+done
+
 # ---- 平台检测 ----
 OS="$(uname -s)"
 ARCH="$(uname -m)"
@@ -33,29 +43,35 @@ detect_ohos() {
     return 1
 }
 
-if [ $# -ge 1 ]; then
+if [ -n "$TARGET" ]; then
     # 用户明确指定目标 → 直接编译
-    TARGET="$1"
-    info "用户指定目标: $TARGET"
+    info "用户指定目标: $TARGET (rebuild=$REBUILD)"
+    if [ "$REBUILD" -eq 1 ]; then
+        info "执行 clean 构建..."
+        cargo clean --target "$TARGET"
+    fi
     exec cargo build --release --target "$TARGET"
 fi
+
+REBUILD_FLAG=""
+[ "$REBUILD" -eq 1 ] && REBUILD_FLAG="--rebuild"
 
 # 自动检测
 if detect_ohos; then
     info "检测到 HarmonyOS/OpenHarmony 系统"
-    info "调用: ./build-ohos.sh"
-    exec "$SCRIPT_DIR/build-ohos.sh"
+    info "调用: ./build-ohos.sh $REBUILD_FLAG"
+    exec "$SCRIPT_DIR/build-ohos.sh" $REBUILD_FLAG
 elif [ "$OS" = "Linux" ]; then
     case "$ARCH" in
         x86_64)
             info "检测到 Linux x86_64"
-            info "调用: ./build-x86_64.sh"
-            exec "$SCRIPT_DIR/build-x86_64.sh"
+            info "调用: ./build-x86_64.sh $REBUILD_FLAG"
+            exec "$SCRIPT_DIR/build-x86_64.sh" $REBUILD_FLAG
             ;;
         aarch64)
             info "检测到 Linux ARM64"
-            info "调用: ./build-arm.sh"
-            exec "$SCRIPT_DIR/build-arm.sh"
+            info "调用: ./build-arm.sh $REBUILD_FLAG"
+            exec "$SCRIPT_DIR/build-arm.sh" $REBUILD_FLAG
             ;;
         *)
             error "不支持的架构: $ARCH"

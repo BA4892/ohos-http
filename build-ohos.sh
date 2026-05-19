@@ -19,6 +19,12 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 TARGET="aarch64-unknown-linux-ohos"
 
+# ---- 解析参数 ----
+REBUILD=0
+for arg in "$@"; do
+    [ "$arg" = "--rebuild" ] && REBUILD=1
+done
+
 # ============================================================
 # 步骤 1: 检查 Rust 环境（鸿蒙预安装版）
 # ============================================================
@@ -57,6 +63,11 @@ ok "Cargo 可用: $(cargo --version)"
 # 步骤 2: 编译
 # ============================================================
 step "步骤 2/2: 编译 $TARGET"
+
+if [ "$REBUILD" -eq 1 ]; then
+    info "执行 clean 构建..."
+    cargo clean --target "$TARGET"
+fi
 
 info "编译 HarmonyOS (OpenHarmony) ARM64 版本..."
 cargo build --release --target "$TARGET"
