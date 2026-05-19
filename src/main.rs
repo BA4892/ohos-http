@@ -117,6 +117,11 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .init();
 
+    // 安装 Rustls CryptoProvider（ring），避免双 provider 冲突
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("安装 rustls ring CryptoProvider 失败");
+
     let args = CliArgs::parse();
 
     // 生成默认配置文件
