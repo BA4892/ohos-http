@@ -621,6 +621,39 @@ blacklist = ["10.0.0.1", "192.168.1.*", "203.0.113.0"]
 - 被限流的 IP 返回 429 Too Many Requests
 - 每 60 秒自动清理过期 IP 记录（超过 10000 条时清空）
 
+### 禁止访问目录/文件
+
+ohosHttp 支持按目录和文件类型禁止特定路径的访问，适用于保护敏感文件不被泄露。
+
+**注意：此功能仅对静态文件服务生效。如果站点配置了反向代理（`proxy_pass` 或 `load_balance_targets`），禁止访问规则会被自动跳过。**
+
+#### 禁止目录
+
+```toml
+[[server]]
+# ...
+forbidden_dirs = ["/runtime/*", "/private/*", "/backup/*"]
+```
+
+`/runtime/*` 会禁止 `/runtime/`、`/runtime/config.json`、`/runtime/subdir/` 等所有以 `/runtime/` 开头的路径。
+
+#### 禁止文件类型
+
+```toml
+[[server]]
+# ...
+forbidden_files = ["*.toml", "*.env", "*.json", "*.yaml", "*.lock"]
+```
+
+`*.toml` 会禁止所有以 `.toml` 结尾的文件访问（如 `/config.toml`、`/subdir/app.toml`）。
+
+**工作原理**
+
+- 在 URL 重写（伪静态）之后、路径规则匹配之前进行检查
+- 匹配规则使用前缀匹配（目录）和后缀匹配（文件类型）
+- 对配置了 `proxy_pass` 或 `load_balance_targets` 的站点自动跳过
+- 匹配时返回 403 Forbidden，并记录访问日志
+
 ---
 
 ## Session 支持
@@ -1059,6 +1092,7 @@ ohosHttp 在启动时显示一个信息画面，包含：
 - 伪静态重写规则列表
 - 反向代理和路径规则
 - CGI 解释器配置
+- 禁止访问规则数量（目录/文件）
 - 启动状态提示
 
 ---
@@ -1340,6 +1374,8 @@ interface MetricsData {
 | `per_ip_rates` | `Record<string, number>` | 自定义 IP 限流 |
 | `session` | `SessionConfig?` | Session 配置 |
 | `allow_ip_access` | `boolean` | 允许 IP 直连 |
+| `forbidden_dirs` | `string[]` | 禁止访问的目录列表 |
+| `forbidden_files` | `string[]` | 禁止访问的文件类型列表 |
 
 ### cURL 使用示例
 

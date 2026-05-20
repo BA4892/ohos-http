@@ -30,6 +30,7 @@ pub struct Session {
     pub id: String,
     pub data: HashMap<String, String>,
     #[serde(skip, default = "crate::session::default_now")]
+    #[allow(dead_code)]
     pub created_at: Instant,
     #[serde(skip, default = "crate::session::default_now")]
     pub last_access: Instant,
@@ -54,17 +55,20 @@ impl Session {
     }
 
     /// 获取 session 数据
+    #[allow(dead_code)]
     pub fn get(&self, key: &str) -> Option<&String> {
         self.data.get(key)
     }
 
     /// 设置 session 数据
+    #[allow(dead_code)]
     pub fn set(&mut self, key: String, value: String) {
         self.data.insert(key, value);
         self.last_access = Instant::now();
     }
 
     /// 删除 session 数据
+    #[allow(dead_code)]
     pub fn remove(&mut self, key: &str) -> Option<String> {
         self.last_access = Instant::now();
         self.data.remove(key)
@@ -92,6 +96,7 @@ impl SessionStore {
     }
 
     /// 获取 cookie 名称
+    #[allow(dead_code)]
     pub fn cookie_name(&self) -> &str {
         &self.cookie_name
     }
@@ -111,6 +116,7 @@ impl SessionStore {
     }
 
     /// 根据 session ID 获取 session
+    #[allow(dead_code)]
     pub fn get(&self, session_id: &str) -> Option<Session> {
         // 查询本地内存
         {
@@ -124,6 +130,7 @@ impl SessionStore {
     }
 
     /// 获取可变 session
+    #[allow(dead_code)]
     pub fn get_mut(&self, session_id: &str) -> Option<Session> {
         let mut session = self.get(session_id)?;
         session.last_access = Instant::now();
@@ -131,6 +138,7 @@ impl SessionStore {
     }
 
     /// 更新 session 数据
+    #[allow(dead_code)]
     pub fn update(&self, session: Session) {
         // 更新本地
         {
@@ -140,6 +148,7 @@ impl SessionStore {
     }
 
     /// 删除 session
+    #[allow(dead_code)]
     pub fn remove(&self, session_id: &str) {
         // 从本地删除
         {
@@ -192,6 +201,7 @@ impl SessionStore {
     }
 
     /// 生成删除 Cookie 头值
+    #[allow(dead_code)]
     pub fn build_delete_cookie(&self) -> String {
         format!("{}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0", self.cookie_name)
     }

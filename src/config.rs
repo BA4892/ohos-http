@@ -176,6 +176,14 @@ pub struct ServerConfig {
     /// 是否允许通过 IP 直接访问（false 则只允许绑定的域名访问）
     #[serde(default = "default_true")]
     pub allow_ip_access: bool,
+
+    /// 禁止访问的目录列表（如 /runtime/* 禁止该目录下所有文件访问）
+    #[serde(default)]
+    pub forbidden_dirs: Vec<String>,
+
+    /// 禁止访问的文件列表（如 *.toml 禁止所有 toml 后缀文件访问）
+    #[serde(default)]
+    pub forbidden_files: Vec<String>,
 }
 
 fn default_bind() -> String { "0.0.0.0:8080".to_string() }
@@ -389,6 +397,8 @@ impl AppConfig {
             per_ip_rates: std::collections::HashMap::new(),
             session: None,
             allow_ip_access: true,
+            forbidden_dirs: Vec::new(),
+            forbidden_files: Vec::new(),
         };
         srv.finalize();
         AppConfig { server: vec![srv], config_path: String::new() }
@@ -424,8 +434,8 @@ domains = ["example.com", "www.example.com"]
 # 上传最大大小（KB/MB/GB）
 upload_max_size = "10MB"
 
-# 工作线程数（0=自动检测CPU核心数）
-threads = 4
+# Worker 进程数（0=自动检测CPU核心数，每个 Worker 使用单线程运行时）
+workers = 4
 
 # 是否启用文件缓存
 cache_enabled = true
@@ -463,6 +473,14 @@ directory_listing = false
 
 # IP 黑名单：完全屏蔽的 IP（支持 * 通配符）
 # blacklist = ["10.0.0.1", "192.168.1.*", "203.0.113.0"]
+
+# 禁止访问的目录（对配置了反向代理的站点无效）
+# 支持 * 通配，/runtime/* 禁止 /runtime/ 目录及子目录下所有文件
+# forbidden_dirs = ["/runtime/*", "/private/*", "/backup/*"]
+
+# 禁止访问的文件类型（对配置了反向代理的站点无效）
+# 支持 * 通配，*.toml 禁止所有 .toml 后缀的文件
+# forbidden_files = ["*.toml", "*.env", "*.json"]
 
 # 按 IP 自定义限流速率（覆盖全局 requests_per_second）
 # [server.per_ip_rates]
@@ -593,7 +611,7 @@ cgi = { interpreter = "/usr/bin/php-cgi", extensions = [".php", ".phtml"] }
 bind = "0.0.0.0:8081"
 root = "./www2"
 domains = ["blog.example.com"]
-threads = 2
+workers = 2
 upload_max_size = "50MB"
 cache_enabled = true
 cache_ttl = "2h"

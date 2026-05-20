@@ -166,10 +166,10 @@ fn run_master(app_config: &mut AppConfig, worker_count: usize) {
 
     // 注册信号处理函数
     unsafe {
-        libc::signal(libc::SIGTERM, sigterm_handler as usize);
-        libc::signal(libc::SIGQUIT, sigterm_handler as usize);
-        libc::signal(libc::SIGINT, sigterm_handler as usize);
-        libc::signal(libc::SIGHUP, sighup_handler as usize);
+        libc::signal(libc::SIGTERM, (sigterm_handler as unsafe extern "C" fn(i32)) as usize);
+        libc::signal(libc::SIGQUIT, (sigterm_handler as unsafe extern "C" fn(i32)) as usize);
+        libc::signal(libc::SIGINT, (sigterm_handler as unsafe extern "C" fn(i32)) as usize);
+        libc::signal(libc::SIGHUP, (sighup_handler as unsafe extern "C" fn(i32)) as usize);
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
         // SIGCHLD 用 waitpid 处理
     }

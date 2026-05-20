@@ -5,7 +5,7 @@ bind = "0.0.0.0:8080"
 root = "/var/www/html"
 domains = ["example.com", "www.example.com"]
 upload_max_size = "50MB"
-threads = 4
+workers = 4
 cache_enabled = true
 cache_ttl = "2h"
 cache_max_size = "200MB"
@@ -46,7 +46,7 @@ bind = "0.0.0.0:8081"
 root = "/var/www/blog"
 domains = ["blog.example.com"]
 upload_max_size = "10MB"
-threads = 2
+workers = 2
 cache_enabled = true
 cache_ttl = "30m"
 cache_max_size = "50MB"
@@ -54,3 +54,13 @@ cache_max_size = "50MB"
 [[server.rewrite]]
 from = "^/post/(\\d+)$"
 to = "/post.php?id=$1"
+
+# =============================================
+# 禁止访问配置（对配置了反向代理的站点无效）
+# =============================================
+
+# 禁止访问的目录：/runtime/* 禁止 /runtime/ 目录及其子目录下所有文件
+# forbidden_dirs = ["/runtime/*", "/private/*", "/data/*"]
+
+# 禁止访问的文件类型：*.toml 禁止所有 .toml 后缀的文件
+# forbidden_files = ["*.toml", "*.env", "*.json", "*.yaml", "*.lock"]

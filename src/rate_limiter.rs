@@ -90,6 +90,7 @@ impl RateLimiter {
     }
 
     /// 添加白名单 IP（不受限流影响）
+    #[allow(dead_code)]
     pub fn add_whitelist(&mut self, ips: Vec<String>) {
         self.whitelist = ips;
     }
@@ -116,11 +117,13 @@ impl RateLimiter {
     }
 
     /// 检查 IP 是否在白名单
+    #[allow(dead_code)]
     pub fn is_whitelisted(&self, ip: &str) -> bool {
         self.whitelist.contains(&ip.to_string())
     }
 
     /// 尝试放行一次请求。返回 true = 允许，false = 限流
+    #[allow(dead_code)]
     pub fn check(&self, ip: &str) -> bool {
         if !self.enabled {
             return true;

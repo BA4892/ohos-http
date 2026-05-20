@@ -87,6 +87,16 @@ pub fn print_startup_banner(configs: &[ServerConfig], worker_count: usize) {
         if !cfg.blacklist.is_empty() {
             println!("  │   黑名单 IP  │  {} 条                                              │", cfg.blacklist.len());
         }
+        if !cfg.forbidden_dirs.is_empty() || !cfg.forbidden_files.is_empty() {
+            let mut fb_parts = Vec::new();
+            if !cfg.forbidden_dirs.is_empty() {
+                fb_parts.push(format!("{} 个目录", cfg.forbidden_dirs.len()));
+            }
+            if !cfg.forbidden_files.is_empty() {
+                fb_parts.push(format!("{} 种文件", cfg.forbidden_files.len()));
+            }
+            println!("  │   禁止访问   │  {:<47}│", fb_parts.join(", "));
+        }
         if !cfg.per_ip_rates.is_empty() {
             println!("  │   自定义限流  │  {} 个 IP                                              │", cfg.per_ip_rates.len());
         }

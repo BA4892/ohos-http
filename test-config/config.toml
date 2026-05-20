@@ -1,7 +1,7 @@
 [[server]]
 bind = "127.0.0.1:8089"
 root = "./www"
-threads = 2
+workers = 2
 cache_enabled = true
 cache_ttl = "1h"
 upload_max_size = "10MB"
@@ -14,3 +14,8 @@ to = "/index.html"
 [[server.location]]
 path = "/api"
 proxy_pass = "http://httpbin.org"
+
+# 禁止访问的目录（对配置了反向代理的站点无效）
+# 由于本站配置了反向代理，以下规则不会生效
+# forbidden_dirs = ["/runtime/*", "/private/*"]
+# forbidden_files = ["*.toml", "*.env"]

@@ -139,12 +139,14 @@ impl LoadBalancer {
     }
 
     /// 简单健康检查（标记后端状态）
+    #[allow(dead_code)]
     pub fn mark_healthy(&self, idx: usize) {
         if idx < self.healthy.len() {
             self.healthy[idx].store(1, Ordering::Relaxed);
         }
     }
 
+    #[allow(dead_code)]
     pub fn mark_unhealthy(&self, idx: usize) {
         if idx < self.healthy.len() {
             self.healthy[idx].store(2, Ordering::Relaxed);
