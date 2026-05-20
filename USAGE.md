@@ -625,7 +625,9 @@ blacklist = ["10.0.0.1", "192.168.1.*", "203.0.113.0"]
 
 ohosHttp 支持按目录和文件类型禁止特定路径的访问，适用于保护敏感文件不被泄露。
 
-**注意：此功能仅对静态文件服务生效。如果站点配置了反向代理（`proxy_pass` 或 `load_balance_targets`），禁止访问规则会被自动跳过。**
+**注意：**
+1. 此功能仅对静态文件服务生效。如果站点配置了反向代理（`proxy_pass` 或 `load_balance_targets`），禁止访问规则会被自动跳过。
+2. **TOML 位置限制**：`forbidden_dirs` 和 `forbidden_files` 必须放在 `[[server.location]]`、`[[server.rewrite]]`、`[server.rate_limiter]` 等子表定义**之前**，否则会被 TOML 解析器当成子表内的字段而忽略（这是 TOML 规范行为）。
 
 #### 禁止目录
 

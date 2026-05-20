@@ -40,6 +40,10 @@ path = "/uploads"
 root = "/data/uploads"
 expires = "30d"
 
+# 禁止访问配置（对配置了反向代理的站点无效）
+# forbidden_dirs = ["/runtime/*", "/private/*", "/data/*"]
+# forbidden_files = ["*.toml", "*.env", "*.json", "*.yaml", "*.lock"]
+
 # 第二个站点：博客
 [[server]]
 bind = "0.0.0.0:8081"
@@ -51,16 +55,14 @@ cache_enabled = true
 cache_ttl = "30m"
 cache_max_size = "50MB"
 
+# 禁止访问配置（对配置了反向代理的站点无效）
+# forbidden_dirs = ["/runtime/*", "/private/*", "/data/*"]
+# forbidden_files = ["*.toml", "*.env", "*.json", "*.yaml", "*.lock"]
+
 [[server.rewrite]]
 from = "^/post/(\\d+)$"
 to = "/post.php?id=$1"
 
-# =============================================
-# 禁止访问配置（对配置了反向代理的站点无效）
-# =============================================
+# 第三站
 
-# 禁止访问的目录：/runtime/* 禁止 /runtime/ 目录及其子目录下所有文件
-# forbidden_dirs = ["/runtime/*", "/private/*", "/data/*"]
-
-# 禁止访问的文件类型：*.toml 禁止所有 .toml 后缀的文件
-# forbidden_files = ["*.toml", "*.env", "*.json", "*.yaml", "*.lock"]
+# 第三站
