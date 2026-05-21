@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
 use chrono::Utc;
@@ -37,16 +37,6 @@ use crate::rate_limiter::RateLimiter;
 use crate::rewrite::RewriteEngine;
 use crate::session::SessionStore;
 
-/// WebSocket 逐跳头（不转发到后端）
-const WS_HOP_BY_HOP: &[&str] = &[
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailers",
-    "transfer-encoding",
-];
 
 /// 简单内存缓存
 #[allow(dead_code)]
@@ -162,6 +152,27 @@ impl RequestHandler {
     }
     pub async fn handle(&self, req: Request<Incoming>, remote_addr: String) -> Result<Response<ResponseBody>, hyper::Error> {
         let (parts, body) = req.into_parts();
+
+        // ─── 提前检查上传请求大小，防止超大请求撑爆内存 ───
+        if parts.method == Method::POST || parts.method == Method::PUT || parts.method == Method::PATCH {
+            if let Some(size_str) = parts.headers.get("content-length").and_then(|v| v.to_str().ok()) {
+                if let Ok(size) = size_str.parse::<u64>() {
+                    if size > self.config.upload_max_size_bytes {
+                        drop(body);
+                        let mut resp = error_response(413, "Request Entity Too Large");
+                        self.add_cors_headers(resp.headers_mut(), &parts.headers);
+                        if let Some(logger) = &self.access_logger {
+                            let path = parts.uri.path();
+                            let referer = parts.headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("-");
+                            let ua = parts.headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("-");
+                            logger.log(&remote_addr, parts.method.as_str(), path, 413, 0, referer, ua, 0);
+                        }
+                        return Ok(resp);
+                    }
+                }
+            }
+        }
+
         let body_bytes = body.collect().await.map(|b| b.to_bytes()).unwrap_or(Bytes::new());
 
         // 检查 WebSocket 升级请求
@@ -687,6 +698,7 @@ impl RequestHandler {
         }
 
         // 如果是 POST/PUT，传递请求体到 stdin
+        cmd.kill_on_drop(true);
         let output = if !body_bytes.is_empty() {
             cmd.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
@@ -703,12 +715,12 @@ impl RequestHandler {
             Err(e) => return Ok(error_response(500, &format!("CGI execute error: {}", e))),
         };
 
-        // 写入 stdin（POST/PUT数据）
+        // 写入 stdin（POST/PUT数据）（带 30s 超时）
         if !body_bytes.is_empty() {
             if let Some(stdin) = child.stdin.as_mut() {
                 use tokio::io::AsyncWriteExt;
-                let _ = stdin.write_all(&body_bytes).await;
-                let _ = stdin.flush().await;
+                let _ = tokio::time::timeout(Duration::from_secs(30), stdin.write_all(&body_bytes)).await;
+                let _ = tokio::time::timeout(Duration::from_secs(30), stdin.flush()).await;
             }
             // 关闭 stdin，等待子进程
             if let Some(stdin) = child.stdin.take() {
@@ -716,11 +728,18 @@ impl RequestHandler {
             }
         }
 
-        // 读取 stdout
-        let output_result = child.wait_with_output().await;
-        let output = match output_result {
-            Ok(o) => o,
-            Err(e) => return Ok(error_response(500, &format!("CGI wait error: {}", e))),
+        // 读取 stdout（带 30s 超时）
+        // kill_on_drop 已在 spawn 前设置，超时或取消时子进程会被杀死
+        let output = tokio::select! {
+            result = child.wait_with_output() => {
+                match result {
+                    Ok(o) => o,
+                    Err(e) => return Ok(error_response(500, &format!("CGI wait error: {}", e))),
+                }
+            }
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                return Ok(error_response(500, "CGI timeout (30s exceeded)"));
+            }
         };
 
         if !output.status.success() {
@@ -892,6 +911,12 @@ impl RequestHandler {
 
     /// 读取文件并返回响应
     async fn read_and_respond(&self, path: &Path, expires: Option<&str>) -> Result<Response<ResponseBody>, hyper::Error> {
+        // 先获取元数据（用于 ETag 和 Last-Modified）
+        let meta = match fs::metadata(path).await {
+            Ok(m) => m,
+            Err(_) => return Ok(error_response(500, "Internal Server Error")),
+        };
+
         match fs::read(path).await {
             Ok(data) => {
                 let mime = mime_type(path).to_string();
@@ -901,6 +926,23 @@ impl RequestHandler {
                     hyper::header::HeaderName::from_static("server"),
                     "ohosHttp/1.0".parse().unwrap()
                 );
+
+                // ─── ETag（基于修改时间和文件大小的强验证器） ───
+                if let Ok(modified) = meta.modified() {
+                    let duration = modified.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    let etag_val = format!("\"{:x}-{:x}\"", duration.as_secs(), meta.len());
+                    resp.headers_mut().insert(
+                        hyper::header::ETAG,
+                        etag_val.parse().unwrap()
+                    );
+                    // ─── Last-Modified ───
+                    let http_date_str = httpdate::fmt_http_date(modified);
+                    resp.headers_mut().insert(
+                        hyper::header::LAST_MODIFIED,
+                        http_date_str.parse().unwrap()
+                    );
+                }
+
                 if let Some(exp) = expires {
                     resp.headers_mut().insert(
                         hyper::header::CACHE_CONTROL,

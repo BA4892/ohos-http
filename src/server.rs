@@ -66,6 +66,7 @@ pub struct HttpServer {
 /// 2. 无匹配时回退到第一个配置（默认站点）
 pub struct VirtualHostRouter {
     /// 默认站点索引（列表中的第一个）
+    #[allow(dead_code)]
     default_idx: usize,
     /// 域名 → 配置索引 的映射
     domain_map: HashMap<String, usize>,
@@ -93,6 +94,7 @@ impl VirtualHostRouter {
     }
 
     /// 根据 Host 头查找对应的 ServerConfig
+    #[allow(dead_code)]
     pub fn resolve(&self, host_header: Option<&str>) -> &ServerConfig {
         if let Some(host) = host_header {
             // 去除端口号
@@ -347,7 +349,7 @@ impl VirtualHostServer {
         if let Some(h3_cfg) = configs.iter().find(|cfg| {
             cfg.http3_port.parse::<u16>().unwrap_or(0) > 0 && cfg.cert.is_some()
         }) {
-            if let Some(tls_cfg) = &tls_config {
+            if tls_config.is_some() {
                 let h3_port: u16 = h3_cfg.http3_port.parse().unwrap_or(0);
                 let h3_addr: SocketAddr = format!("0.0.0.0:{}", h3_port).parse()?;
                 let h3_handler = handlers[0].clone();
@@ -380,7 +382,6 @@ impl VirtualHostServer {
                             let remote = peer_addr.to_string();
                             let tls_config = tls_config.clone();
                             let router_domain_map = self.router.domain_map.clone();
-                            let router_configs = configs.to_vec();
 
                             let remote_for_log = remote.clone();
                             tokio::spawn(async move {
