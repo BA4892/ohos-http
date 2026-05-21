@@ -198,7 +198,7 @@ impl HttpServer {
 
                             // ─── CC/DDoS 连接层防护 ───
                             if let Some(limiter) = &rate_limiter {
-                                if !limiter.try_connect(&remote) {
+                                if !limiter.try_connect(&remote).await {
                                     // 连接超限（速率或并发），直接关闭
                                     drop(stream);
                                     continue;
@@ -248,7 +248,7 @@ impl HttpServer {
                                                 }
                                                 // CC/DDoS: 连接结束时减少并发计数
                                                 if let Some(limiter) = handler_for_disconnect.rate_limiter_ref() {
-                                                    limiter.disconnect(&remote_for_disconnect);
+                                                    limiter.disconnect(&remote_for_disconnect).await;
                                                 }
                                             } else {
                                                 let conn = hyper::server::conn::http1::Builder::new()
@@ -261,7 +261,7 @@ impl HttpServer {
                                                 }
                                                 // CC/DDoS: 连接结束时减少并发计数
                                                 if let Some(limiter) = handler_for_disconnect.rate_limiter_ref() {
-                                                    limiter.disconnect(&remote_for_disconnect);
+                                                    limiter.disconnect(&remote_for_disconnect).await;
                                                 }
                                             }
                                         }
@@ -290,7 +290,7 @@ impl HttpServer {
                                     }
                                     // CC/DDoS: 连接结束时减少并发计数
                                     if let Some(limiter) = handler_for_disconnect.rate_limiter_ref() {
-                                        limiter.disconnect(&remote_for_disconnect);
+                                        limiter.disconnect(&remote_for_disconnect).await;
                                     }
                                 }
                             });
@@ -412,7 +412,7 @@ impl VirtualHostServer {
 
                             // ─── CC/DDoS 连接层防护 ───
                             if let Some(limiter) = &rate_limiter {
-                                if !limiter.try_connect(&remote) {
+                                if !limiter.try_connect(&remote).await {
                                     // 连接超限（速率或并发），直接关闭
                                     drop(stream);
                                     continue;
@@ -459,7 +459,7 @@ impl VirtualHostServer {
                                                 }
                                                 // CC/DDoS: 连接结束时减少并发计数
                                                 if let Some(limiter) = handlers_for_disconnect[0].rate_limiter_ref() {
-                                                    limiter.disconnect(&remote_for_disconnect);
+                                                    limiter.disconnect(&remote_for_disconnect).await;
                                                 }
                                             } else {
                                                 let conn = hyper::server::conn::http1::Builder::new()
@@ -472,7 +472,7 @@ impl VirtualHostServer {
                                                 }
                                                 // CC/DDoS: 连接结束时减少并发计数
                                                 if let Some(limiter) = handlers_for_disconnect[0].rate_limiter_ref() {
-                                                    limiter.disconnect(&remote_for_disconnect);
+                                                    limiter.disconnect(&remote_for_disconnect).await;
                                                 }
                                             }
                                         }
@@ -499,7 +499,7 @@ impl VirtualHostServer {
                                     }
                                     // CC/DDoS: 连接结束时减少并发计数
                                     if let Some(limiter) = handlers_for_disconnect[0].rate_limiter_ref() {
-                                        limiter.disconnect(&remote_for_disconnect);
+                                        limiter.disconnect(&remote_for_disconnect).await;
                                     }
                                 }
                             });

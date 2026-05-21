@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ use flate2::{Compression, write::GzEncoder};
 use hyper::{body::Body, body::Incoming, HeaderMap, Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use hyper_util::rt::TokioIo;
+use lru::LruCache;
 use mime_guess::from_path;
 use tokio::fs;
 use tokio::process::Command as TokioCommand;
@@ -38,20 +40,19 @@ use crate::rewrite::RewriteEngine;
 use crate::session::SessionStore;
 
 
-/// 简单内存缓存
-#[allow(dead_code)]
+/// 简单内存缓存（LRU 淘汰）
 struct MemCache {
-    data: HashMap<String, CacheEntry>,
+    data: LruCache<String, CacheEntry>,
     max_size: u64,
     current_size: u64,
 }
 
-#[allow(dead_code)]
 struct CacheEntry {
     data: Arc<Vec<u8>>,
     mime: String,
     created: SystemTime,
     ttl: u64,
+    size: u64,
 }
 
 /// 响应Body类型
@@ -87,7 +88,7 @@ impl RequestHandler {
 
         let cache = if config.cache_enabled {
             Some(Arc::new(RwLock::new(MemCache {
-                data: HashMap::new(),
+                data: LruCache::new(NonZeroUsize::new(10000).unwrap()),
                 max_size: config.cache_max_size_bytes,
                 current_size: 0,
             })))
@@ -238,7 +239,7 @@ impl RequestHandler {
         // ─── Rate limiting check ───
         if let Some(limiter) = &self.rate_limiter {
             // 先检查黑名单
-            if limiter.is_blocked(remote_addr) {
+            if limiter.is_blocked(remote_addr).await {
                 let resp = error_response(403, "Forbidden: Your IP is blocked");
                 let (mut parts, body) = resp.into_parts();
                 self.add_cors_headers(&mut parts.headers, headers);
@@ -250,7 +251,7 @@ impl RequestHandler {
                 return Ok(Response::from_parts(parts, body));
             }
             // 再检查限流（令牌桶）
-            if !limiter.check(remote_addr) {
+            if !limiter.check(remote_addr).await {
                 let resp = error_response(429, "Too Many Requests");
                 let (mut parts, body) = resp.into_parts();
                 self.add_cors_headers(&mut parts.headers, headers);
@@ -872,7 +873,7 @@ impl RequestHandler {
                     let cache_key = normalized.to_string_lossy().to_string();
                     {
                         let cache_read = cache.read().await;
-                        if let Some(entry) = cache_read.data.get(&cache_key) {
+                        if let Some(entry) = cache_read.data.peek(&cache_key) {
                             if entry.created.elapsed().unwrap_or_default().as_secs() < entry.ttl {
                                 let mut resp = Response::new(Full::from(
                                     Bytes::copy_from_slice(&entry.data)
@@ -897,16 +898,31 @@ impl RequestHandler {
                     }
                     // 如果缓存未命中或过期，读取文件并缓存
                     let data = fs::read(&normalized).await.unwrap_or_default();
+                    let file_size = data.len() as u64;
                     let mime = mime_type(&normalized).to_string();
-                    let entry = CacheEntry {
-                        data: Arc::new(data.clone()),
-                        mime: mime.clone(),
-                        created: SystemTime::now(),
-                        ttl: self.config.cache_ttl_seconds,
-                    };
-                    {
-                        let mut cache_write = cache.write().await;
-                        cache_write.data.insert(cache_key, entry);
+                    // 仅缓存小文件（<= 1MB）以避免内存压力
+                    if file_size <= 1_048_576 {
+                        // LRU 淘汰：如果超过 max_size，逐出最久未用的条目
+                        let entry = CacheEntry {
+                            data: Arc::new(data.clone()),
+                            mime: mime.clone(),
+                            created: SystemTime::now(),
+                            ttl: self.config.cache_ttl_seconds,
+                            size: file_size,
+                        };
+                        {
+                            let mut cache_write = cache.write().await;
+                            // 强制淘汰直到有足够空间
+                            while !cache_write.data.is_empty()
+                                && cache_write.current_size + file_size > cache_write.max_size
+                            {
+                                if let Some((_, evicted)) = cache_write.data.pop_lru() {
+                                    cache_write.current_size = cache_write.current_size.saturating_sub(evicted.size);
+                                }
+                            }
+                            cache_write.current_size += file_size;
+                            cache_write.data.put(cache_key, entry);
+                        }
                     }
                     let mut resp = Response::new(Full::from(data));
                     resp.headers_mut().insert(
