@@ -416,6 +416,9 @@ impl RequestHandler {
                 }
             }
             Method::POST | Method::PUT | Method::PATCH => {
+                if !self.config.allow_upload {
+                    return Ok(error_response(405, "Method Not Allowed"));
+                }
                 // 检查是否需要 CGI 解释执行
                 if let Some(cgi_cfg) = self.find_cgi_config(&file_path) {
                     return self.execute_cgi(&file_path, &cgi_cfg, &method, headers, body_bytes, query, remote_addr).await;
@@ -459,6 +462,9 @@ impl RequestHandler {
                 Ok(Response::new(Full::from(Bytes::from(resp_json))))
             }
             Method::DELETE => {
+                if !self.config.allow_delete {
+                    return Ok(error_response(405, "Method Not Allowed"));
+                }
                 // DELETE 请求：尝试删除文件
                 let normalized = normalize_path(&file_path);
                 if !normalized.starts_with(&self.config.root) {

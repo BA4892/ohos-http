@@ -184,6 +184,14 @@ pub struct ServerConfig {
     /// 禁止访问的文件列表（如 *.toml 禁止所有 toml 后缀文件访问）
     #[serde(default)]
     pub forbidden_files: Vec<String>,
+
+    /// 是否允许 DELETE 请求删除文件（默认禁止，false 时返回 405）
+    #[serde(default)]
+    pub allow_delete: bool,
+
+    /// 是否允许上传文件 (POST/PUT/PATCH，默认禁止，false 时返回 405)
+    #[serde(default)]
+    pub allow_upload: bool,
 }
 
 fn default_bind() -> String { "0.0.0.0:8080".to_string() }
@@ -399,6 +407,8 @@ impl AppConfig {
             allow_ip_access: true,
             forbidden_dirs: Vec::new(),
             forbidden_files: Vec::new(),
+            allow_delete: false,
+            allow_upload: false,
         };
         srv.finalize();
         AppConfig { server: vec![srv], config_path: String::new() }
@@ -480,7 +490,13 @@ directory_listing = false
 
 # 禁止访问的文件类型（对配置了反向代理的站点无效）
 # 支持 * 通配，*.toml 禁止所有 .toml 后缀的文件
-# forbidden_files = ["*.toml", "*.env", "*.json"]
+forbidden_files = ["*.toml", "*.env", "*.json", "*.yml", "*.yaml", "*.lock", "Cargo.*", "composer.*", "package.json", "package-lock.json"]
+
+# 是否允许 DELETE 请求删除文件（默认 false，设为 true 后小心使用）
+# allow_delete = false
+
+# 是否允许上传文件 (POST/PUT/PATCH，默认 false)
+# allow_upload = false
 
 # 按 IP 自定义限流速率（覆盖全局 requests_per_second）
 # [server.per_ip_rates]
