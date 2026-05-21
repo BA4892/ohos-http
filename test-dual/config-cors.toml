@@ -1,0 +1,10 @@
+[[server]]
+bind = "0.0.0.0:8089"
+root = "./test-dual/site1"
+domains = ["site1.example.com", "www.site1.example.com"]
+workers = 1
+directory_listing = false
+
+cors_origin = "*"
+cors_methods = "GET,POST,PUT,DELETE,PATCH,OPTIONS"
+cors_headers = "Content-Type,Authorization,X-Requested-With"

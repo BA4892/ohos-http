@@ -20,7 +20,7 @@ use std::time::SystemTime;
 use bytes::Bytes;
 use chrono::Utc;
 use flate2::{Compression, write::GzEncoder};
-use hyper::{body::Incoming, HeaderMap, Method, Request, Response, StatusCode};
+use hyper::{body::Body, body::Incoming, HeaderMap, Method, Request, Response, StatusCode};
 use http_body_util::{BodyExt, Full};
 use hyper_util::rt::TokioIo;
 use mime_guess::from_path;
@@ -348,6 +348,22 @@ impl RequestHandler {
             }
         } else {
             self.handle_regular_request(method.clone(), headers, body_bytes, &final_path, uri.query(), remote_addr).await?
+        };
+
+        // ─── HEAD 方法：保留头部和 Content-Length，清空 body（RFC 9110 §9.3.3）───
+        let result = if *method == Method::HEAD {
+            let (parts, body) = result.into_parts();
+            let content_len: u64 = body.size_hint().exact().unwrap_or(0);
+            let mut parts = parts;
+            if !parts.headers.contains_key(http::header::CONTENT_LENGTH) {
+                parts.headers.insert(
+                    http::header::CONTENT_LENGTH,
+                    http::HeaderValue::from_str(&content_len.to_string()).unwrap(),
+                );
+            }
+            Response::from_parts(parts, Full::from(Bytes::new()))
+        } else {
+            result
         };
 
         // CORS headers + logging

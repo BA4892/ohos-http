@@ -1,0 +1,13 @@
+[[server]]
+bind = "127.0.0.1:8089"
+root = "./test-dual/site1"
+domains = ["site1.test"]
+workers = 2
+directory_listing = true
+
+[[server]]
+bind = "127.0.0.1:8089"
+root = "./test-dual/site2"
+domains = ["site2.test"]
+workers = 2
+directory_listing = true

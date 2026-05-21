@@ -1,0 +1,16 @@
+# 双站点同端口测试配置
+# 两个站点共享 0.0.0.0:8089，通过 Host 头区分
+
+[[server]]
+bind = "0.0.0.0:8089"
+root = "./test-dual/site1"
+domains = ["site1.example.com", "www.site1.example.com"]
+workers = 1
+directory_listing = false
+
+[[server]]
+bind = "0.0.0.0:8089"
+root = "./test-dual/site2"
+domains = ["blog.example.com", "www.blog.example.com"]
+workers = 1
+directory_listing = false

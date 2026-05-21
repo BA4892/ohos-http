@@ -1,0 +1,13 @@
+
+thread 'main' (19190) panicked at src/server.rs:10:51:
+绑定端口失败: Os { code: 98, kind: AddrInUse, message: "Address in use" }
+note: run with `RUST_BACKTRACE=1` env新连接: 127.0.0.1:52700
+WebSocket 握手失败 (127.0.0.1:52700): WebSocket protocol error: Handshake not finished
+新连接: 127.0.0.1:52702
+WebSocket 握手失败 (127.0.0.1:52702): WebSocket protocol error: No "Connection: upgrade" header
+新连接: 127.0.0.1:52704
+WebSocket 握手失败 (127.0.0.1:52704): WebSocket protocol error: No "Connection: upgrade" header
+新连接: 127.0.0.1:52706
+WebSocket 握手失败 (127.0.0.1:52706): WebSocket protocol error: Handshake not finished
+新连接: 127.0.0.1:52708
+WebSocket 握手失败 (127.0.0.1:52708): WebSocket protocol error: Handshake not finished

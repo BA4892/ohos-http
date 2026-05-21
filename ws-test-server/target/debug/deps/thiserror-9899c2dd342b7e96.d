@@ -1,0 +1,9 @@
+/storage/Users/currentUser/Documents/Myapp/rust/ohos-http/ws-test-server/target/debug/deps/thiserror-9899c2dd342b7e96.d: /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/lib.rs /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/aserror.rs /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/display.rs
+
+/storage/Users/currentUser/Documents/Myapp/rust/ohos-http/ws-test-server/target/debug/deps/libthiserror-9899c2dd342b7e96.rlib: /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/lib.rs /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/aserror.rs /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/display.rs
+
+/storage/Users/currentUser/Documents/Myapp/rust/ohos-http/ws-test-server/target/debug/deps/libthiserror-9899c2dd342b7e96.rmeta: /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/lib.rs /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/aserror.rs /storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/display.rs
+
+/storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/lib.rs:
+/storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/aserror.rs:
+/storage/Users/currentUser/.cargo/registry/src/mirrors.tuna.tsinghua.edu.cn-4dc01642fd091eda/thiserror-1.0.69/src/display.rs:
