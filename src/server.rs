@@ -233,7 +233,8 @@ impl HttpServer {
                                             } else {
                                                 let conn = hyper::server::conn::http1::Builder::new()
                                                     .keep_alive(true)
-                                                    .serve_connection(io, service);
+                                                    .serve_connection(io, service)
+                                                    .with_upgrades();
 
                                                 if let Err(err) = conn.await {
                                                     error!("HTTP/1.1 连接错误 ({}): {}", remote_for_log, err);
@@ -255,7 +256,8 @@ impl HttpServer {
                                     let io = TokioIo::new(stream);
                                     let conn = hyper::server::conn::http1::Builder::new()
                                         .keep_alive(true)
-                                        .serve_connection(io, service);
+                                        .serve_connection(io, service)
+                                        .with_upgrades();
 
                                     if let Err(err) = conn.await {
                                         error!("连接处理错误: {}", err);
@@ -415,7 +417,8 @@ impl VirtualHostServer {
                                             } else {
                                                 let conn = hyper::server::conn::http1::Builder::new()
                                                     .keep_alive(true)
-                                                    .serve_connection(io, service);
+                                                    .serve_connection(io, service)
+                                                    .with_upgrades();
 
                                                 if let Err(err) = conn.await {
                                                     error!("HTTP/1.1 连接错误 ({}): {}", remote_for_log, err);
@@ -436,7 +439,8 @@ impl VirtualHostServer {
                                     let io = TokioIo::new(stream);
                                     let conn = hyper::server::conn::http1::Builder::new()
                                         .keep_alive(true)
-                                        .serve_connection(io, service);
+                                        .serve_connection(io, service)
+                                        .with_upgrades();
 
                                     if let Err(err) = conn.await {
                                         error!("连接处理错误: {}", err);

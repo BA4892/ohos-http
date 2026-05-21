@@ -1025,8 +1025,12 @@ impl RequestHandler {
                 // 添加必要的 WebSocket 头
                 for (name, value) in request_headers.iter() {
                     let name_lower = name.as_str().to_lowercase();
-                    // 过滤掉 hop-by-hop 头
-                    if WS_HOP_BY_HOP.contains(&name_lower.as_str()) {
+                    // WebSocket 代理需要保留 Connection 和 Upgrade 头
+                    // 只过滤真正对后端无用的 hop-by-hop 头
+                    if name_lower == "transfer-encoding"
+                        || name_lower == "proxy-authenticate"
+                        || name_lower == "proxy-authorization"
+                    {
                         continue;
                     }
                     req_data.extend_from_slice(name.as_str().as_bytes());
