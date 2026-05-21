@@ -81,7 +81,9 @@ pub fn print_startup_banner(configs: &[ServerConfig], worker_count: usize) {
         // 限流与安全
         if let Some(ref rl) = cfg.rate_limit {
             if rl.enabled {
-                println!("  │   限流       │  每 IP {} req/s (突发: {})                               │", rl.requests_per_second, rl.burst_size);
+                println!("  │   请求限流   │  每 IP {} req/s (突发: {})                               │", rl.requests_per_second, rl.burst_size);
+                println!("  │   CC 连接限流 │  每 IP {} conn/s | 并发 {} 连接                  │", rl.connections_per_second, rl.max_concurrent_connections);
+                println!("  │   自动封禁   │  违规 {} 次/30s → 封禁 {}s                          │", rl.ban_threshold, rl.ban_duration_seconds);
             }
         }
         if !cfg.blacklist.is_empty() {

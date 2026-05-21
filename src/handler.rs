@@ -99,12 +99,16 @@ impl RequestHandler {
             AccessLogger::new(log_path, config.log_rotate_size_bytes)
         });
 
-        // 初始化限流器
+        // 初始化限流器（含 CC/DDoS 防护）
         let rate_limiter = config.rate_limit.as_ref().map(|rl| {
-            RateLimiter::new(
+            RateLimiter::new_full(
                 rl.enabled,
                 rl.requests_per_second,
                 rl.burst_size,
+                rl.connections_per_second,
+                rl.max_concurrent_connections,
+                rl.ban_duration_seconds,
+                rl.ban_threshold,
                 config.blacklist.clone(),
                 config.per_ip_rates.clone(),
             )
@@ -194,6 +198,11 @@ impl RequestHandler {
             Ok(r) => r,
             Err(_) => error_response(500, "Internal Server Error")
         }
+    }
+
+    /// 获取限流器引用（供 server 层做连接级检查）
+    pub fn rate_limiter_ref(&self) -> Option<&RateLimiter> {
+        self.rate_limiter.as_ref()
     }
 
     /// 内部处理方法（协议无关）

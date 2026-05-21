@@ -182,6 +182,11 @@ impl HttpServer {
             });
         }
 
+        let rate_limiter = handler.rate_limiter_ref();
+        let conn_timeout = self.config.rate_limit.as_ref()
+            .filter(|rl| rl.enabled && rl.connection_timeout_seconds > 0)
+            .map(|rl| std::time::Duration::from_secs(rl.connection_timeout_seconds));
+
         // ─── 主 accept 循环 (TCP + TLS) — 协程层：每个连接一个轻量级异步任务 ───
         loop {
             tokio::select! {
@@ -192,9 +197,20 @@ impl HttpServer {
                 accept_result = listener.accept() => {
                     match accept_result {
                         Ok((stream, peer_addr)) => {
-                            let handler = handler.clone();
                             let remote = peer_addr.to_string();
+
+                            // ─── CC/DDoS 连接层防护 ───
+                            if let Some(limiter) = &rate_limiter {
+                                if !limiter.try_connect(&remote) {
+                                    // 连接超限（速率或并发），直接关闭
+                                    drop(stream);
+                                    continue;
+                                }
+                            }
+
+                            let handler = handler.clone();
                             let tls_config = tls_config.clone();
+                            let conn_timeout = conn_timeout;
 
                             let remote_for_log = remote.clone();
                             // 每个连接一个独立异步任务（协程），在 Tokio 线程池中调度
@@ -214,6 +230,8 @@ impl HttpServer {
 
                                             let io = TokioIo::new(tls_stream);
 
+                                            let remote_for_disconnect = remote.clone();
+                                            let handler_for_disconnect = handler.clone();
                                             let service = service_fn(move |req: Request<Incoming>| {
                                                 let handler = handler.clone();
                                                 let remote = remote.clone();
@@ -232,6 +250,10 @@ impl HttpServer {
                                                 if let Err(err) = conn.await {
                                                     error!("HTTP/2 连接错误 ({}): {}", remote_for_log, err);
                                                 }
+                                                // CC/DDoS: 连接结束时减少并发计数
+                                                if let Some(limiter) = handler_for_disconnect.rate_limiter_ref() {
+                                                    limiter.disconnect(&remote_for_disconnect);
+                                                }
                                             } else {
                                                 let conn = hyper::server::conn::http1::Builder::new()
                                                     .keep_alive(true)
@@ -241,6 +263,10 @@ impl HttpServer {
                                                 if let Err(err) = conn.await {
                                                     error!("HTTP/1.1 连接错误 ({}): {}", remote_for_log, err);
                                                 }
+                                                // CC/DDoS: 连接结束时减少并发计数
+                                                if let Some(limiter) = handler_for_disconnect.rate_limiter_ref() {
+                                                    limiter.disconnect(&remote_for_disconnect);
+                                                }
                                             }
                                         }
                                         Err(e) => {
@@ -249,6 +275,8 @@ impl HttpServer {
                                     }
                                 } else {
                                     // 无 TLS — 纯 HTTP/1.1
+                                    let remote_for_disconnect = remote.clone();
+                                    let handler_for_disconnect = handler.clone();
                                     let service = service_fn(move |req: Request<Incoming>| {
                                         let handler = handler.clone();
                                         let remote = remote.clone();
@@ -263,6 +291,10 @@ impl HttpServer {
 
                                     if let Err(err) = conn.await {
                                         error!("连接处理错误: {}", err);
+                                    }
+                                    // CC/DDoS: 连接结束时减少并发计数
+                                    if let Some(limiter) = handler_for_disconnect.rate_limiter_ref() {
+                                        limiter.disconnect(&remote_for_disconnect);
                                     }
                                 }
                             });
@@ -368,6 +400,8 @@ impl VirtualHostServer {
             }
         }
 
+        let rate_limiter = handlers[0].rate_limiter_ref();
+
         // ─── 主 accept 循环 ───
         loop {
             tokio::select! {
@@ -378,12 +412,23 @@ impl VirtualHostServer {
                 accept_result = listener.accept() => {
                     match accept_result {
                         Ok((stream, peer_addr)) => {
-                            let handlers = handlers.clone();
                             let remote = peer_addr.to_string();
+
+                            // ─── CC/DDoS 连接层防护 ───
+                            if let Some(limiter) = &rate_limiter {
+                                if !limiter.try_connect(&remote) {
+                                    // 连接超限（速率或并发），直接关闭
+                                    drop(stream);
+                                    continue;
+                                }
+                            }
+
+                            let handlers = handlers.clone();
                             let tls_config = tls_config.clone();
                             let router_domain_map = self.router.domain_map.clone();
 
                             let remote_for_log = remote.clone();
+                            let remote_for_disconnect = remote.clone();
                             tokio::spawn(async move {
                                 if let Some(tls_cfg) = tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_cfg);
@@ -397,6 +442,7 @@ impl VirtualHostServer {
 
                                             let io = TokioIo::new(tls_stream);
 
+                                            let handlers_for_disconnect = handlers.clone();
                                             let service = service_fn(move |req: Request<Incoming>| {
                                                 let handler = resolve_handler(&req, &handlers, &router_domain_map);
                                                 let remote = remote.clone();
@@ -415,6 +461,10 @@ impl VirtualHostServer {
                                                 if let Err(err) = conn.await {
                                                     error!("HTTP/2 连接错误 ({}): {}", remote_for_log, err);
                                                 }
+                                                // CC/DDoS: 连接结束时减少并发计数
+                                                if let Some(limiter) = handlers_for_disconnect[0].rate_limiter_ref() {
+                                                    limiter.disconnect(&remote_for_disconnect);
+                                                }
                                             } else {
                                                 let conn = hyper::server::conn::http1::Builder::new()
                                                     .keep_alive(true)
@@ -424,6 +474,10 @@ impl VirtualHostServer {
                                                 if let Err(err) = conn.await {
                                                     error!("HTTP/1.1 连接错误 ({}): {}", remote_for_log, err);
                                                 }
+                                                // CC/DDoS: 连接结束时减少并发计数
+                                                if let Some(limiter) = handlers_for_disconnect[0].rate_limiter_ref() {
+                                                    limiter.disconnect(&remote_for_disconnect);
+                                                }
                                             }
                                         }
                                         Err(e) => {
@@ -431,6 +485,7 @@ impl VirtualHostServer {
                                         }
                                     }
                                 } else {
+                                    let handlers_for_disconnect = handlers.clone();
                                     let service = service_fn(move |req: Request<Incoming>| {
                                         let handler = resolve_handler(&req, &handlers, &router_domain_map);
                                         let remote = remote.clone();
@@ -445,6 +500,10 @@ impl VirtualHostServer {
 
                                     if let Err(err) = conn.await {
                                         error!("连接处理错误: {}", err);
+                                    }
+                                    // CC/DDoS: 连接结束时减少并发计数
+                                    if let Some(limiter) = handlers_for_disconnect[0].rate_limiter_ref() {
+                                        limiter.disconnect(&remote_for_disconnect);
                                     }
                                 }
                             });

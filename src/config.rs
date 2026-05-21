@@ -299,7 +299,7 @@ pub struct LocationConfig {
     pub load_balance_strategy: String,
 }
 
-/// 限流配置
+/// 限流配置（CC/DDoS 防护）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
     /// 是否启用限流
@@ -311,6 +311,24 @@ pub struct RateLimitConfig {
     /// 突发大小（令牌桶容量）
     #[serde(default = "default_burst")]
     pub burst_size: u32,
+
+    // ═══════════════ CC / DDoS 防护 ═══════════════
+
+    /// 每 IP 每秒允许的新建连接数（0=不限制，默认 50）
+    #[serde(default = "default_conn_rps")]
+    pub connections_per_second: u32,
+    /// 每 IP 最大并发连接数（0=不限制，默认 100）
+    #[serde(default = "default_max_conn")]
+    pub max_concurrent_connections: u32,
+    /// 临时封禁时长（秒），0=不启用自动封禁，默认 300（5 分钟）
+    #[serde(default = "default_ban_duration")]
+    pub ban_duration_seconds: u64,
+    /// 触发自动封禁所需的限流违规次数（30 秒窗口内）
+    #[serde(default = "default_ban_threshold")]
+    pub ban_threshold: u32,
+    /// 连接超时秒数（慢速攻击防护，0=不限制）
+    #[serde(default = "default_conn_timeout")]
+    pub connection_timeout_seconds: u64,
 }
 
 /// Session 配置
@@ -340,6 +358,11 @@ pub struct LoadBalanceTarget {
 fn default_rate_limit_enabled() -> bool { true }
 fn default_rps() -> u32 { 100 }
 fn default_burst() -> u32 { 200 }
+fn default_conn_rps() -> u32 { 50 }
+fn default_max_conn() -> u32 { 100 }
+fn default_ban_duration() -> u64 { 300 }
+fn default_ban_threshold() -> u32 { 3 }
+fn default_conn_timeout() -> u64 { 30 }
 fn default_session_enabled() -> bool { true }
 fn default_session_cookie() -> String { "OHOS_SESSION".to_string() }
 fn default_session_ttl() -> u64 { 3600 }
@@ -480,6 +503,18 @@ directory_listing = false
 
 # 限流控制：每 IP 每秒允许的请求数
 # rate_limit = { enabled = true, requests_per_second = 100, burst_size = 200 }
+
+# CC/DDoS 高级防护（可选，仅在 rate_limit 块内配置）
+# rate_limit = {
+#   enabled = true,
+#   requests_per_second = 100,
+#   burst_size = 200,
+#   connections_per_second = 50,     # 每 IP 每秒新建连接数
+#   max_concurrent_connections = 100, # 每 IP 最大并发连接数
+#   ban_duration_seconds = 300,       # 自动封禁时长（秒，300=5分钟）
+#   ban_threshold = 3,                # 触发封禁的违规次数
+#   connection_timeout_seconds = 30,  # 连接超时（慢速攻击防护）
+# }
 
 # IP 黑名单：完全屏蔽的 IP（支持 * 通配符）
 # blacklist = ["10.0.0.1", "192.168.1.*", "203.0.113.0"]

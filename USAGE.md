@@ -992,11 +992,13 @@ allow_ip_access = false
 
 ---
 
-## 限流与安全
+## 限流与安全（CC/DDoS 防护）
 
-ohosHttp 提供基于令牌桶的 IP 限流器，支持黑名单和按 IP 自定义速率。
+ohosHttp 提供多层次的 CC/DDoS 攻击防护，包含**请求限流**、**连接限流**、**自动封禁**三大机制。所有防护在 `rate_limit` 配置块内统一配置。
 
-### 配置文件启用限流
+### 快速配置
+
+#### 基础限流（仅请求限流）
 
 ```toml
 [[server]]
@@ -1004,15 +1006,137 @@ ohosHttp 提供基于令牌桶的 IP 限流器，支持黑名单和按 IP 自定
 rate_limit = { enabled = true, requests_per_second = 100, burst_size = 200 }
 ```
 
+#### 完整防护（推荐）
+
+```toml
+[[server]]
+# ...
+rate_limit = {
+  enabled = true,
+  requests_per_second = 100,        # 每 IP 每秒允许的请求数
+  burst_size = 200,                 # 令牌桶容量（允许短时突发流量）
+  connections_per_second = 50,      # 每 IP 每秒允许的新建 TCP 连接数
+  max_concurrent_connections = 100, # 每 IP 最大并发连接数
+  ban_duration_seconds = 300,       # 自动封禁时长（秒，300=5分钟）
+  ban_threshold = 3                 # 30秒内触发限流 N 次则自动封禁
+}
+```
+
+### 配置项说明
+
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `enabled` | `true` | 是否启用限流 |
-| `requests_per_second` | `100` | 每 IP 每秒允许的请求数 |
-| `burst_size` | `200` | 令牌桶容量（允许短时突发流量） |
+| `enabled` | `true` | 是否启用全部限流/防护机制 |
+| `requests_per_second` | `100` | 每 IP 每秒允许的请求数（请求层限流） |
+| `burst_size` | `200` | 令牌桶容量，允许短时突发流量 |
+| `connections_per_second` | `50` | 每 IP 每秒允许的新建 TCP 连接数（连接层 CC 防护，0=不限制） |
+| `max_concurrent_connections` | `100` | 每 IP 最大并发连接数（连接层 DDoS 防护，0=不限制） |
+| `ban_duration_seconds` | `300` | 自动封禁时长秒数（0=不启用自动封禁） |
+| `ban_threshold` | `3` | 30 秒滑动窗口内触发限流的次数达到此值则自动封禁 |
+
+### 三层防护架构
+
+```
+请求到达 TCP Listener
+        │
+        ▼
+┌─────────────────────────────────────┐
+│  第一层：连接层防护（server.rs）     │
+│  ├─ 连接速率：每 IP 每秒最多 N 连接  │
+│  └─ 并发连接：每 IP 最多 N 个连接    │
+│  超限则直接关闭 TCP 连接             │
+└─────────────────────────────────────┘
+        │ (通过连接检查)
+        ▼
+┌─────────────────────────────────────┐
+│  第二层：请求层防护（handler.rs）    │
+│  ├─ 令牌桶算法：每 IP 每秒 N 请求    │
+│  ├─ 黑名单检查：返回 403             │
+│  └─ 白名单绕过：不受限流影响         │
+│  超限则返回 429 Too Many Requests    │
+└─────────────────────────────────────┘
+        │ (通过请求检查)
+        ▼
+┌─────────────────────────────────────┐
+│  第三层：自动封禁（rate_limiter.rs） │
+│  ├─ 违规计数：30s 滑动窗口           │
+│  ├─ 自动封禁：达阈值则封禁 N 秒      │
+│  └─ 封禁期所有连接和请求均返回 403   │
+└─────────────────────────────────────┘
+        │
+        ▼
+    正常业务处理
+```
+
+### 各层防护详解
+
+#### 第一层：连接层防护
+
+在 TCP 连接建立时立即检查，对攻击流量在**最早阶段**进行拦截，最小化资源消耗。
+
+| 防护类型 | 检查时机 | 超限后果 |
+|:---------|:---------|:---------|
+| 连接速率 | TCP accept 后立即检查 | 直接关闭连接（不创建异步任务） |
+| 并发限制 | 连接建立时 + 断开时更新计数 | 直接关闭连接 |
+
+```rust
+// 连接层在 server.rs accept 循环中执行，改造前：
+tokio::spawn(async move { /* 处理请求 */ });
+
+// 改造后：
+if !limiter.try_connect(&remote) {
+    drop(stream);  // 直接关闭连接
+    continue;
+}
+tokio::spawn(async move {
+    /* 处理请求 */
+    limiter.disconnect(&remote);  // 连接结束时减少计数
+});
+```
+
+#### 第二层：请求层限流
+
+使用令牌桶算法，对每个 IP 的 HTTP 请求频率进行精确控制。
+
+| HTTP 状态码 | 含义 |
+|:-----------|:-----|
+| `403 Forbidden` | IP 在黑名单中或被自动封禁 |
+| `429 Too Many Requests` | 请求频率超过限制 |
+| `200 OK` | 请求放行 |
+
+#### 第三层：自动封禁
+
+当某个 IP 在 **30 秒滑动窗口**内多次触发限流（达到 `ban_threshold` 次），系统会自动将该 IP 封禁 `ban_duration_seconds` 秒。封禁期间所有连接和请求都会被拒绝。
+
+**自动封禁流程：**
+
+```
+IP 首次违规 ──→ 违规计数 = 1 (窗口开始计时)
+IP 再次违规 ──→ 违规计数 = 2
+IP 第 N 次违规─→ 违规计数 = N
+        │
+        ├── N < ban_threshold → 继续监控
+        └── N ≥ ban_threshold → 自动封禁该 IP
+                                ├── 写入 temp_bans 表
+                                ├── 日志记录 "自动封禁 IP x.x.x.x"
+                                └── 连接/请求直接拒绝 403
+```
+
+**冷知识**：30 秒窗口独立于封禁时长。即使封禁解除，如果 IP 继续攻击，会再次触发封禁。
+
+### CC 攻击防护场景
+
+| 攻击类型 | 防护机制 | 配置重点 |
+|:---------|:---------|:---------|
+| HTTP Flood（大量 GET/POST） | 请求限流 | `requests_per_second`, `burst_size` |
+| 连接 Flood（大量新建连接） | 连接速率 + 并发限制 | `connections_per_second`, `max_concurrent_connections` |
+| Slow Loris（慢速请求） | 连接超时 + 并发限制 | `max_concurrent_connections` |
+| 僵尸网络轮换 IP | 自动封禁（轮换后继续触发） | `ban_threshold`, `ban_duration_seconds` |
+| 应用层 DDoS（低频慢速） | 请求限流 | 调低 `requests_per_second` |
 
 ### IP 黑名单
 
-完全屏蔽指定 IP 的访问：
+完全屏蔽指定 IP 的访问。支持 `*` 通配符进行 IP 段匹配。
 
 ```toml
 [[server]]
@@ -1020,11 +1144,11 @@ rate_limit = { enabled = true, requests_per_second = 100, burst_size = 200 }
 blacklist = ["10.0.0.1", "192.168.1.*", "203.0.113.0"]
 ```
 
-支持 `*` 通配符进行 IP 段匹配。
+> **注意**：黑名单 IP 不会被自动封禁，它们是永久屏蔽。自动封禁是临时的。
 
 ### 按 IP 自定义限流
 
-为特定 IP 配置不同的速率（覆盖全局 `requests_per_second`）：
+为特定 IP 配置不同的请求速率（覆盖全局 `requests_per_second`）：
 
 ```toml
 [[server]]
@@ -1034,13 +1158,24 @@ blacklist = ["10.0.0.1", "192.168.1.*", "203.0.113.0"]
 "10.0.0.2" = 1000        # 该 IP 每秒最多 1000 个请求（API 服务器）
 ```
 
-### 工作原理
+### 关闭所有防护
 
-- 使用令牌桶算法，每个 IP 独立计数
-- 白名单中的 IP 不受限流影响
-- 黑名单中的 IP 直接返回 403 Forbidden
-- 被限流的 IP 返回 429 Too Many Requests
-- 每 60 秒自动清理过期 IP 记录（超过 10000 条时清空）
+```toml
+[[server]]
+# ...
+rate_limit = { enabled = false }
+```
+
+### 启动日志示例
+
+启用完整防护后，启动时可以看到：
+
+```
+  │   请求限流   │  每 IP 100 req/s (突发: 200)
+  │   CC 连接限流 │  每 IP 50 conn/s | 并发 100 连接
+  │   自动封禁   │  违规 3 次/30s → 封禁 300s
+  │   黑名单 IP  │  5 条
+```
 
 ### 禁止访问目录/文件
 
