@@ -640,10 +640,6 @@ impl RequestHandler {
             http::HeaderValue::from_static("nosniff"),
         );
         headers.insert(
-            HeaderName::from_static("x-frame-options"),
-            http::HeaderValue::from_static("SAMEORIGIN"),
-        );
-        headers.insert(
             HeaderName::from_static("referrer-policy"),
             http::HeaderValue::from_static("strict-origin-when-cross-origin"),
         );
