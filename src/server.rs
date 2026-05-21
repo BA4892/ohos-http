@@ -30,7 +30,13 @@
 //! - Worker 进程: 预 fork, 每个 Worker = 1 个 OS 线程 + 1 个事件循环
 //! - SO_REUSEPORT: 内核层负载均衡
 //! - 无共享状态: 进程隔离, 无需锁
+//!
+//! ## 虚拟主机路由 (VirtualHost)
+//!
+//! 当多个 `[[server]]` 配置同一端口时，共享一个 TcpListener，
+//! 在应用层根据 HTTP Host 头路由到正确的站点配置。
 
+use std::collections::HashMap;
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -39,7 +45,7 @@ use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request};
 use hyper_util::rt::TokioIo;
-use log::{error, info};
+use log::{error, info, warn};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
@@ -47,10 +53,66 @@ use crate::config::ServerConfig;
 use crate::handler::RequestHandler;
 use crate::manage::ManageHandler;
 
-/// HTTP 服务器实例
+/// HTTP 服务器实例（单站点）
 pub struct HttpServer {
     config: ServerConfig,
     manage_handler: Option<ManageHandler>,
+}
+
+/// 虚拟主机路由器 — 同一端口多个站点共享一个 Listener
+///
+/// 根据 HTTP Host 头匹配对应的 ServerConfig：
+/// 1. 精确匹配 domains 列表
+/// 2. 无匹配时回退到第一个配置（默认站点）
+pub struct VirtualHostRouter {
+    /// 默认站点索引（列表中的第一个）
+    default_idx: usize,
+    /// 域名 → 配置索引 的映射
+    domain_map: HashMap<String, usize>,
+    /// 所有共享此端口的站点配置
+    configs: Vec<ServerConfig>,
+    /// 可选的全局管理处理器（仅第一个非空）
+    manage_handler: Option<ManageHandler>,
+}
+
+impl VirtualHostRouter {
+    /// 从一组共享同一端口的 ServerConfig 创建路由器
+    pub fn new(configs: Vec<ServerConfig>, manage_handler: Option<ManageHandler>) -> Self {
+        let mut domain_map = HashMap::new();
+        for (idx, cfg) in configs.iter().enumerate() {
+            for domain in &cfg.domains {
+                domain_map.insert(domain.to_lowercase(), idx);
+            }
+        }
+        VirtualHostRouter {
+            default_idx: 0,
+            domain_map,
+            configs,
+            manage_handler,
+        }
+    }
+
+    /// 根据 Host 头查找对应的 ServerConfig
+    pub fn resolve(&self, host_header: Option<&str>) -> &ServerConfig {
+        if let Some(host) = host_header {
+            // 去除端口号
+            let hostname = host.split(':').next().unwrap_or(host).to_lowercase();
+            if let Some(idx) = self.domain_map.get(&hostname) {
+                return &self.configs[*idx];
+            }
+        }
+        &self.configs[self.default_idx]
+    }
+
+    /// 返回所有配置引用
+    pub fn all_configs(&self) -> &[ServerConfig] {
+        &self.configs
+    }
+
+    /// 获取管理处理器
+    pub fn manage_handler(&self) -> Option<&ManageHandler> {
+        self.manage_handler.as_ref()
+    }
 }
 
 impl HttpServer {
@@ -214,7 +276,204 @@ impl HttpServer {
     }
 }
 
-/// 创建 TCP Listener（SO_REUSEPORT — 多 Worker 共享端口）
+/// 虚拟主机服务器 — 同一端口多个站点共享一个 TcpListener
+///
+/// 根据 HTTP Host 头在应用层做域名路由，解决多站同端口时
+/// SO_REUSEPORT 内核分发导致请求被错误站点处理的问题。
+pub struct VirtualHostServer {
+    router: VirtualHostRouter,
+}
+
+impl VirtualHostServer {
+    pub fn new(router: VirtualHostRouter) -> Self {
+        VirtualHostServer { router }
+    }
+
+    /// 多站点共享端口启动（含 TLS、HTTP/2、HTTP/3 支持）
+    pub async fn start(&self, mut shutdown_rx: watch::Receiver<bool>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let configs = self.router.all_configs();
+        if configs.is_empty() {
+            return Err("没有可用的站点配置".into());
+        }
+
+        // 使用第一个配置的 bind 地址创建共享 Listener
+        let bind = if let Some(cfg) = configs.first() {
+            cfg.bind.as_str()
+        } else {
+            return Err("没有可用的站点配置".into());
+        };
+        let addr: SocketAddr = bind.parse()
+            .map_err(|e| format!("绑定地址格式错误 '{}': {}", bind, e))?;
+
+        // 为每个站点创建独立的 RequestHandler
+        let handlers: Vec<Arc<RequestHandler>> = configs.iter().map(|cfg| {
+            if let Some(manage) = self.router.manage_handler() {
+                Arc::new(RequestHandler::new_with_manage(cfg.clone(), manage.clone()))
+            } else {
+                Arc::new(RequestHandler::new(cfg.clone()))
+            }
+        }).collect();
+
+        // ─── TLS 配置（取第一个非空的 cert/key） ───
+        let tls_config = configs.iter()
+            .find_map(|cfg| {
+                if let (Some(cert_path), Some(key_path)) = (&cfg.cert, &cfg.key) {
+                    match load_tls_config(cert_path, key_path) {
+                        Ok(cfg) => Some(cfg),
+                        Err(e) => {
+                            warn!("TLS 配置加载失败 (跳过): {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            });
+
+        // ─── TCP Listener（共享，只创建一个） ───
+        let listener = create_tcp_listener(addr).await?;
+
+        let site_count = configs.len();
+        info!("ohosHttp 多站点服务器启动: {} ({} 个站点, Worker 单线程事件循环)",
+            bind, site_count);
+
+        if tls_config.is_some() {
+            info!("TLS/HTTPS 已启用 — ALPN: h2, http/1.1");
+        }
+
+        // ─── HTTP/3 (QUIC) 任务（取第一个配置的 h3 端口） ───
+        if let Some(h3_cfg) = configs.iter().find(|cfg| {
+            cfg.http3_port.parse::<u16>().unwrap_or(0) > 0 && cfg.cert.is_some()
+        }) {
+            if let Some(tls_cfg) = &tls_config {
+                let h3_port: u16 = h3_cfg.http3_port.parse().unwrap_or(0);
+                let h3_addr: SocketAddr = format!("0.0.0.0:{}", h3_port).parse()?;
+                let h3_handler = handlers[0].clone();
+                let tls_for_h3 = load_tls_config_for_h3(
+                    h3_cfg.cert.as_ref().unwrap(),
+                    h3_cfg.key.as_ref().unwrap(),
+                )?;
+                let mut shutdown_rx_h3 = shutdown_rx.clone();
+
+                tokio::spawn(async move {
+                    info!("HTTP/3 (QUIC) 正在监听 UDP {}:{}", h3_addr.ip(), h3_addr.port());
+                    if let Err(e) = run_h3_server(h3_handler, h3_addr, tls_for_h3, &mut shutdown_rx_h3).await {
+                        error!("HTTP/3 服务器错误: {}", e);
+                    }
+                });
+            }
+        }
+
+        // ─── 主 accept 循环 ───
+        loop {
+            tokio::select! {
+                _ = shutdown_rx.changed() => {
+                    info!("ohosHttp 多站点服务器 {} 收到关闭信号，正在优雅关闭...", bind);
+                    break;
+                }
+                accept_result = listener.accept() => {
+                    match accept_result {
+                        Ok((stream, peer_addr)) => {
+                            let handlers = handlers.clone();
+                            let remote = peer_addr.to_string();
+                            let tls_config = tls_config.clone();
+                            let router_domain_map = self.router.domain_map.clone();
+                            let router_configs = configs.to_vec();
+
+                            let remote_for_log = remote.clone();
+                            tokio::spawn(async move {
+                                if let Some(tls_cfg) = tls_config {
+                                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_cfg);
+                                    match tls_acceptor.accept(stream).await {
+                                        Ok(tls_stream) => {
+                                            let (_, session) = tls_stream.get_ref();
+                                            let alpn = session.alpn_protocol()
+                                                .and_then(|p| std::str::from_utf8(p).ok())
+                                                .unwrap_or("http/1.1")
+                                                .to_string();
+
+                                            let io = TokioIo::new(tls_stream);
+
+                                            let service = service_fn(move |req: Request<Incoming>| {
+                                                let handler = resolve_handler(&req, &handlers, &router_domain_map);
+                                                let remote = remote.clone();
+                                                async move { handler.handle(req, remote).await }
+                                            });
+
+                                            if alpn == "h2" {
+                                                info!("HTTP/2 连接: {} (ALPN: h2)", remote_for_log);
+                                                let conn = hyper::server::conn::http2::Builder::new(
+                                                    hyper_util::rt::TokioExecutor::new()
+                                                )
+                                                .timer(hyper_util::rt::TokioTimer::new())
+                                                .keep_alive_interval(Some(std::time::Duration::from_secs(30)))
+                                                .serve_connection(io, service);
+
+                                                if let Err(err) = conn.await {
+                                                    error!("HTTP/2 连接错误 ({}): {}", remote_for_log, err);
+                                                }
+                                            } else {
+                                                let conn = hyper::server::conn::http1::Builder::new()
+                                                    .keep_alive(true)
+                                                    .serve_connection(io, service);
+
+                                                if let Err(err) = conn.await {
+                                                    error!("HTTP/1.1 连接错误 ({}): {}", remote_for_log, err);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("TLS 握手失败 ({}): {}", remote_for_log, e);
+                                        }
+                                    }
+                                } else {
+                                    let service = service_fn(move |req: Request<Incoming>| {
+                                        let handler = resolve_handler(&req, &handlers, &router_domain_map);
+                                        let remote = remote.clone();
+                                        async move { handler.handle(req, remote).await }
+                                    });
+
+                                    let io = TokioIo::new(stream);
+                                    let conn = hyper::server::conn::http1::Builder::new()
+                                        .keep_alive(true)
+                                        .serve_connection(io, service);
+
+                                    if let Err(err) = conn.await {
+                                        error!("连接处理错误: {}", err);
+                                    }
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            error!("接受连接失败: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        info!("ohosHttp 多站点服务器 {} 已停止", bind);
+        Ok(())
+    }
+}
+
+/// 根据请求的 Host 头解析出对应的 RequestHandler
+fn resolve_handler(
+    req: &Request<Incoming>,
+    handlers: &[Arc<RequestHandler>],
+    domain_map: &HashMap<String, usize>,
+) -> Arc<RequestHandler> {
+    let host = req.headers()
+        .get("host")
+        .and_then(|v| v.to_str().ok());
+    let idx = if let Some(host) = host {
+        let hostname = host.split(':').next().unwrap_or(host).to_lowercase();
+        domain_map.get(&hostname).copied().unwrap_or(0)
+    } else {
+        0
+    };
+    handlers[idx].clone()
+}
 async fn create_tcp_listener(addr: SocketAddr) -> Result<TcpListener, Box<dyn std::error::Error + Send + Sync>> {
     use socket2::{Domain, Protocol, Socket, Type};
     use std::os::fd::AsRawFd;

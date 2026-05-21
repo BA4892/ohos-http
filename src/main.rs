@@ -324,8 +324,9 @@ fn run_worker(app_config: &AppConfig, worker_id: usize) {
 
 /// Worker 异步主循环
 async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
-    use server::HttpServer;
+    use server::{HttpServer, VirtualHostRouter, VirtualHostServer};
     use manage::ManageHandler;
+    use std::collections::HashMap;
 
     let servers = &app_config.server;
     if servers.is_empty() {
@@ -336,25 +337,50 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
     // 检查管理 API 是否启用
     let auth_token = manage::MANAGE_AUTH_TOKEN.get().cloned().unwrap_or_default();
     let manage_enabled = !auth_token.is_empty();
+    let manage_handler = if manage_enabled {
+        Some(ManageHandler::new(app_config, &auth_token))
+    } else {
+        None
+    };
 
     // 创建关闭信号通道
     let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
-    // 启动所有站点
+    // 按 bind 地址分组：同一端口的多个站点共享一个 Listener
+    let mut groups: HashMap<&str, Vec<&config::ServerConfig>> = HashMap::new();
+    for srv in servers {
+        groups.entry(srv.bind.as_str()).or_default().push(srv);
+    }
+
+    // 启动所有唯一端口（每个端口一个 Listener）
     let mut handles = Vec::new();
-    for srv_config in servers {
-        let shutdown_rx = shutdown_tx.subscribe();
-        let server = if manage_enabled {
-            let manage_handler = ManageHandler::new(app_config, &auth_token);
-            HttpServer::new_with_manage(srv_config.clone(), manage_handler)
+    for (_bind, configs) in groups {
+        if configs.len() == 1 {
+            // 单站点 — 使用常规 HttpServer
+            let shutdown_rx = shutdown_tx.subscribe();
+            let srv_config = configs[0].clone();
+            let server = if let Some(ref manage) = manage_handler {
+                HttpServer::new_with_manage(srv_config, manage.clone())
+            } else {
+                HttpServer::new(srv_config)
+            };
+            handles.push(tokio::spawn(async move {
+                if let Err(e) = server.start(shutdown_rx).await {
+                    error!("服务器启动失败: {}", e);
+                }
+            }));
         } else {
-            HttpServer::new(srv_config.clone())
-        };
-        handles.push(tokio::spawn(async move {
-            if let Err(e) = server.start(shutdown_rx).await {
-                error!("服务器启动失败: {}", e);
-            }
-        }));
+            // 多站点共享端口 — 使用 VirtualHostServer + 应用层路由
+            let shutdown_rx = shutdown_tx.subscribe();
+            let shared_configs: Vec<config::ServerConfig> = configs.into_iter().cloned().collect();
+            let router = VirtualHostRouter::new(shared_configs, manage_handler.clone());
+            let vh_server = VirtualHostServer::new(router);
+            handles.push(tokio::spawn(async move {
+                if let Err(e) = vh_server.start(shutdown_rx).await {
+                    error!("虚拟主机服务器启动失败: {}", e);
+                }
+            }));
+        }
     }
 
     // Worker 级别的信号处理
