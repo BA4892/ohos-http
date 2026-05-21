@@ -641,7 +641,7 @@ impl RequestHandler {
         );
         headers.insert(
             HeaderName::from_static("x-frame-options"),
-            http::HeaderValue::from_static("DENY"),
+            http::HeaderValue::from_static("SAMEORIGIN"),
         );
         headers.insert(
             HeaderName::from_static("referrer-policy"),
