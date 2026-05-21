@@ -289,7 +289,22 @@ impl RequestHandler {
         }
 
         // URL rewrite
-        let final_path = self.rewrite_engine.rewrite(path).unwrap_or_else(|| path.to_string());
+        // 支持 ThinkPHP/Laravel 等框架：如果原始路径对应真实文件则跳过重写
+        let final_path = {
+            let rewritten = self.rewrite_engine.rewrite(path);
+            match rewritten {
+                Some(r) if r != path => {
+                    // 重写改变了路径，检查原始文件是否存在
+                    let original_file = std::path::PathBuf::from(&self.config.root).join(path.trim_start_matches('/'));
+                    if original_file.exists() {
+                        path.to_string()
+                    } else {
+                        r
+                    }
+                }
+                _ => path.to_string(),
+            }
+        };
 
         // location matching
         let matching_location = {
@@ -1367,5 +1382,95 @@ mod tests {
         assert!(is_path_forbidden("/data/config.json", &dirs, &files));
         // 不匹配
         assert!(!is_path_forbidden("/public/index.html", &dirs, &files));
+    }
+
+    // ─── URL 重写集成测试 ──────────────────────────────────────
+
+    use crate::config::{RewriteRule, ServerConfig};
+    use super::RequestHandler;
+    use hyper::{Method, HeaderMap};
+    use bytes::Bytes;
+
+    /// 创建最小测试配置
+    fn test_config(root: &str, rewrite_rules: Vec<RewriteRule>) -> ServerConfig {
+        // 从 TOML 反序列化创建配置，避免逐字段构造
+        let rewrite_toml: String = rewrite_rules.iter().map(|r| {
+            format!(r#"[[server.rewrite]]
+from = "{}"
+to = "{}"
+"#, r.from.replace('\\', "\\\\"), r.to)
+        }).collect();
+
+        let toml_str = format!(r#"
+[[server]]
+bind = "0.0.0.0:0"
+root = "{}"
+{}
+"#, root, rewrite_toml);
+
+        let mut cfg: crate::config::AppConfig = toml::from_str(&toml_str).unwrap();
+        cfg.server.remove(0)
+    }
+
+    #[tokio::test]
+    async fn test_rewrite_skip_existing_file() {
+        let rules = vec![RewriteRule {
+            from: "^/(.*)$".to_string(),
+            to: "/index.php/$1".to_string(),
+            regex: true,
+        }];
+        let mut config = test_config("./www", rules);
+        config.finalize();
+
+        let handler = RequestHandler::new(config);
+
+        // Test 1: 请求 /index.html（真实存在的文件），应不重写，直接返回 200
+        let uri: hyper::Uri = "http://localhost/index.html".parse().unwrap();
+        let headers = HeaderMap::new();
+        let result = handler.handle_internal(&Method::GET, &uri, &headers, Bytes::new(), "127.0.0.1:12345").await;
+        assert!(result.is_ok(), "处理 /index.html 应成功");
+        let response = result.unwrap();
+        assert_eq!(response.status(), 200, "已存在的文件应返回 200");
+
+        // Test 2: 请求 /nonexistent（不存在的路径），应被重写为 /index.php/nonexistent
+        // 由于没有 PHP CGI，最终返回 404
+        let uri: hyper::Uri = "http://localhost/nonexistent".parse().unwrap();
+        let result = handler.handle_internal(&Method::GET, &uri, &headers, Bytes::new(), "127.0.0.1:12345").await;
+        assert!(result.is_ok(), "处理 /nonexistent 应成功（返回 404）");
+        let response = result.unwrap();
+        assert_eq!(response.status(), 404, "不存在的路径应返回 404");
+
+        // Test 3: 请求 / 根路径，应被重写为 /index.php/
+        let uri: hyper::Uri = "http://localhost/".parse().unwrap();
+        let result = handler.handle_internal(&Method::GET, &uri, &headers, Bytes::new(), "127.0.0.1:12345").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_rewrite_no_rewrite_no_match() {
+        let rules = vec![RewriteRule {
+            from: "^/api/(.*)$".to_string(),
+            to: "/api_handler.php?r=$1".to_string(),
+            regex: true,
+        }];
+        let mut config = test_config("./www", rules);
+        config.finalize();
+
+        let handler = RequestHandler::new(config);
+        let headers = HeaderMap::new();
+
+        // /index.html 不匹配任何重写规则 → 直接服务文件
+        let uri: hyper::Uri = "http://localhost/index.html".parse().unwrap();
+        let result = handler.handle_internal(&Method::GET, &uri, &headers, Bytes::new(), "127.0.0.1:12345").await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(response.status(), 200);
+
+        // /api/users 匹配重写规则 → 重写为 /api_handler.php?r=users
+        let uri: hyper::Uri = "http://localhost/api/users".parse().unwrap();
+        let result = handler.handle_internal(&Method::GET, &uri, &headers, Bytes::new(), "127.0.0.1:12345").await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(response.status(), 404);
     }
 }

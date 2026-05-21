@@ -8,6 +8,11 @@
 - [CGI 解释器配置](#cgi-解释器配置)
 - [配置文件详解](#配置文件详解)
 - [伪静态重写规则](#伪静态重写规则)
+- [主流框架伪静态配置](#主流框架伪静态配置)
+  - [ThinkPHP (5/6/8)](#thinkphp-568)
+  - [Laravel](#laravel)
+  - [WordPress](#wordpress)
+  - [Yii2](#yii2)
 - [反向代理](#反向代理)
 - [WebSocket 代理转发](#websocket-代理转发)
 - [路径规则](#路径规则)
@@ -363,6 +368,194 @@ to = "/article.html?id=$1"
 ### 重写规则执行顺序
 
 规则按在配置文件中出现的顺序从上到下匹配。第一个匹配的规则生效。
+
+### 特殊变量 `$0`
+
+除了 `$1`、`$2` 等捕获组变量外，还支持 `$0` 代表**整个匹配的路径**。常用于静态资源排除规则：
+
+```toml
+# 静态资源匹配后返回自身（不重写）
+[[server.rewrite]]
+from = "^/(css|js|img)/.*$"
+to = "$0"
+```
+
+---
+
+## 主流框架伪静态配置
+
+ohosHttp 的伪静态引擎支持所有主流 PHP 框架。**关键特性**：当 URL 重写后的路径与原始路径不同时，服务器会自动检查原始路径是否对应一个真实存在的文件，如果是则跳过重写直接服务该文件。这意味着您可以使用一个简单的 catch-all 规则而无需手动排除静态资源目录。
+
+### ThinkPHP (5/6/8)
+
+ThinkPHP 默认使用 PathInfo 模式，URL 格式为 `index.php/模块/控制器/操作`。
+
+#### 标准配置
+
+```toml
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./public"        # ThinkPHP 入口在 public 目录
+domains = ["example.com"]
+
+# CGI: 所有 .php 文件用 PHP 解释器执行
+[[server.cgi]]
+php = "/usr/bin/php"
+extensions = ["php"]
+
+# 伪静态: 所有请求路由到 index.php
+[[server.rewrite]]
+from = "^/(.*)$"
+to = "/index.php/$1"
+```
+
+**工作原理**：
+
+| 请求 URL | 处理方式 |
+|:---------|:---------|
+| `/index.html` | 真实文件存在 → 跳过重写，直接返回 HTML |
+| `/css/style.css` | 真实文件存在 → 跳过重写，直接返回 CSS |
+| `/home/index` | 文件不存在 → 重写为 `/index.php/home/index` → PHP CGI 执行 |
+| `/admin/user/edit/id/1` | 文件不存在 → 重写为 `/index.php/admin/user/edit/id/1` → PHP CGI 执行 |
+| `/` | 重写为 `/index.php/` → PHP CGI 执行（ThinkPHP 默认路由） |
+
+#### 排除特定静态目录
+
+如果希望显式排除某些目录的 URL 重写（防止意外匹配）：
+
+```toml
+[[server.rewrite]]
+from = "^/(assets|uploads|static|runtime)/.*$"
+to = "$0"               # $0 = 整个匹配路径，即不改变
+
+[[server.rewrite]]
+from = "^/(.*)$"
+to = "/index.php/$1"
+```
+
+> **注意**：ThinkPHP 的 `runtime` 目录应通过禁止访问规则保护，而非通过重写规则：
+> ```toml
+> [[server]]
+> forbidden_dirs = ["/runtime"]
+> ```
+
+#### ThinkPHP 兼容模式（?s= 参数）
+
+部分 ThinkPHP 版本使用兼容模式 URL（如 `index.php?s=/home/index`）：
+
+```toml
+[[server.rewrite]]
+from = "^/(.*)$"
+to = "/index.php?s=$1"
+```
+
+### Laravel
+
+Laravel 使用前端控制器模式，所有请求通过 `public/index.php` 处理。
+
+#### 标准配置（document root = public 目录）
+
+```toml
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./public"        # Laravel 入口在 public 目录
+domains = ["example.com"]
+
+# CGI: 所有 .php 文件用 PHP 解释器执行
+[[server.cgi]]
+php = "/usr/bin/php"
+extensions = ["php"]
+
+# 伪静态: 所有请求路由到 index.php（等价于 Apache 的 RewriteRule ^(.*)$ index.php [QSA,L]）
+[[server.rewrite]]
+from = "^/(.*)$"
+to = "/index.php/$1"
+```
+
+#### Laravel 子目录部署（项目根目录 = document root）
+
+```toml
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./laravel"       # Laravel 项目根目录
+domains = ["example.com"]
+
+[[server.cgi]]
+php = "/usr/bin/php"
+extensions = ["php"]
+
+# 伪静态: 所有请求路由到 public/index.php
+[[server.rewrite]]
+from = "^/(.*)$"
+to = "/public/index.php/$1"
+
+# 静态资源目录
+[[server.rewrite]]
+from = "^/public/(css|js|img|fonts|uploads)/.*$"
+to = "$0"
+```
+
+**工作原理**：
+
+| 请求 URL | 处理方式 |
+|:---------|:---------|
+| `/` | 重写为 `/index.php/` → PHP CGI 执行（Laravel 路由处理） |
+| `/login` | 重写为 `/index.php/login` → PHP CGI 执行 |
+| `/css/app.css` | 真实文件存在 → 跳过重写，直接返回 CSS |
+| `/js/app.js` | 真实文件存在 → 跳过重写，直接返回 JS |
+| `/api/users` | 重写为 `/index.php/api/users` → PHP CGI 执行 |
+| `/storage/...` | 真实文件或符号链接存在 → 跳过重写，直接服务 |
+
+> **说明**：Laravel 会创建 `public/storage` 符号链接指向 `storage/app/public`。由于 ohosHttp 自动检查文件存在性，真实文件（包括符号链接）会被直接服务，不会被重写到 index.php。
+
+### WordPress
+
+```toml
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./wordpress"
+domains = ["example.com"]
+
+[[server.cgi]]
+php = "/usr/bin/php"
+extensions = ["php"]
+
+# WordPress 伪静态
+[[server.rewrite]]
+from = "^/$"
+to = "/index.php"
+
+[[server.rewrite]]
+from = "^/(.*)$"
+to = "/index.php/$1"
+
+# 确保 wp-content/uploads 等不触发重写
+```
+
+### Yii2
+
+```toml
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./yii2"
+domains = ["example.com"]
+
+[[server.cgi]]
+php = "/usr/bin/php"
+extensions = ["php"]
+
+# Yii2 伪静态（使用 r= 参数模式）
+[[server.rewrite]]
+from = "^/(.*)$"
+to = "/index.php?r=$1"
+```
+
+### 注意事项
+
+1. **Rust 正则引擎限制**：ohosHttp 使用 Rust 的 `regex` 库，不支持零宽断言（负向前瞻 `(?!...)`、正向前瞻 `(?=...)` 等）。需要使用多条规则组合来实现排除效果。
+2. **文件存在性检查**：当规则将 URL 重写为不同路径时，服务器会自动检查原始路径是否对应真实文件。如果是，则跳过重写。这实现了类似 nginx `try_files` 的语义。
+3. **路径匹配优先于 CGI**：如果配置了 `[[server.location]]` 规则（如反向代理），其优先级高于 CGI 处理。确保 `location` 规则不会意外抓走 PHP 请求。
+4. **HTTP Basic Auth**：如果后端 PHP 框架需要认证，可在项目中通过 `.htaccess` 类似的方式或框架中间件实现。
 
 ---
 
