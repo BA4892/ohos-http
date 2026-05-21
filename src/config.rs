@@ -189,7 +189,7 @@ pub struct ServerConfig {
     #[serde(default)]
     pub allow_delete: bool,
 
-    /// 是否允许上传文件 (POST/PUT/PATCH，默认禁止，false 时返回 405)
+    /// 是否允许上传文件 (PUT/PATCH，默认禁止，false 时返回 405)。POST 始终可用。
     #[serde(default)]
     pub allow_upload: bool,
 }
@@ -495,7 +495,7 @@ forbidden_files = ["*.toml", "*.env", "*.json", "*.yml", "*.yaml", "*.lock", "Ca
 # 是否允许 DELETE 请求删除文件（默认 false，设为 true 后小心使用）
 # allow_delete = false
 
-# 是否允许上传文件 (POST/PUT/PATCH，默认 false)
+# 是否允许上传文件 (PUT/PATCH，默认 false)。POST 始终可用
 # allow_upload = false
 
 # 按 IP 自定义限流速率（覆盖全局 requests_per_second）

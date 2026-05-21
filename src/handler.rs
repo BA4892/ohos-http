@@ -415,7 +415,51 @@ impl RequestHandler {
                     self.serve_file(&file_path, None).await
                 }
             }
-            Method::POST | Method::PUT | Method::PATCH => {
+            Method::POST => {
+                // POST 始终允许（用于表单提交等），不检查 allow_upload
+                // 检查是否需要 CGI 解释执行
+                if let Some(cgi_cfg) = self.find_cgi_config(&file_path) {
+                    return self.execute_cgi(&file_path, &cgi_cfg, &method, headers, body_bytes, query, remote_addr).await;
+                }
+
+                // 检查上传大小
+                let content_length = headers
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(0);
+
+                if content_length > self.config.upload_max_size_bytes {
+                    return Ok(error_response(413, "Request Entity Too Large"));
+                }
+
+                if body_bytes.len() as u64 > self.config.upload_max_size_bytes {
+                    return Ok(error_response(413, "Request Entity Too Large"));
+                }
+
+                // 保存上传文件到上传目录
+                let upload_dir = PathBuf::from(&self.config.root).join("uploads");
+                let _ = fs::create_dir_all(&upload_dir).await;
+
+                let body_for_write = body_bytes.clone();
+                let body_len = body_bytes.len();
+                let file_id = Utc::now().timestamp();
+                let filename = format!("{}.bin", file_id);
+
+                // 非阻塞写入
+                let fname = filename.clone();
+                tokio::spawn(async move {
+                    let filepath = upload_dir.join(&fname);
+                    let _ = fs::write(&filepath, &body_for_write).await;
+                });
+
+                let resp_json = format!(
+                    "{{\"status\":\"ok\",\"size\":{},\"file\":\"uploads/{}\"}}",
+                    body_len, filename
+                );
+                Ok(Response::new(Full::from(Bytes::from(resp_json))))
+            }
+            Method::PUT | Method::PATCH => {
                 if !self.config.allow_upload {
                     return Ok(error_response(405, "Method Not Allowed"));
                 }
