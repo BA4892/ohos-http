@@ -9,6 +9,7 @@
 - [配置文件详解](#配置文件详解)
 - [伪静态重写规则](#伪静态重写规则)
 - [反向代理](#反向代理)
+- [WebSocket 代理转发](#websocket-代理转发)
 - [路径规则](#路径规则)
 - [缓存配置](#缓存配置)
 - [CORS 跨域配置](#cors-跨域配置)
@@ -401,6 +402,233 @@ proxy_pass = "http://127.0.0.1:5000"
 [[server.location]]
 path = "/service"
 proxy_pass = "http://127.0.0.1:8080"
+```
+
+---
+
+## WebSocket 代理转发
+
+ohosHttp 内置 WebSocket 代理转发功能，无需额外配置——任何已有的 `proxy_pass` 路径规则**自动支持 WebSocket 升级**。当客户端发起 WebSocket 握手请求时，服务器自动建立到后端的 TCP 隧道并桥接双向数据流。
+
+### 自动识别原理
+
+1. 客户端发送带有 `Upgrade: websocket` 和 `Connection: Upgrade` 头的 HTTP 请求
+2. ohosHttp 通过 `is_websocket_upgrade()` 检测到 WebSocket 升级请求
+3. 查找匹配的 `[[server.location]]` 路径规则（按最长前缀匹配），要求配有 `proxy_pass`
+4. 如果匹配：建立到后端的 TCP 连接，转发原始 WebSocket 握手头
+5. 后端返回 **101 Switching Protocols** 后，回复 101 给客户端，开始桥接双向数据
+6. 如果不匹配：降级到普通 HTTP 处理（不产生错误，不会中断请求）
+
+### 配置方式
+
+**配置与普通反向代理完全相同**——WebSocket 支持自动启用：
+
+```toml
+# ==== 站点配置 ====
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./www"
+domains = ["example.com", "www.example.com"]
+
+# 普通 HTTP API 代理
+[[server.location]]
+path = "/api"
+proxy_pass = "http://127.0.0.1:3000"
+
+# WebSocket 服务代理（同一配置，自动识别升级）
+[[server.location]]
+path = "/ws"
+proxy_pass = "http://127.0.0.1:8081"
+```
+
+### 完整示例：Node.js WebSocket 后端
+
+#### 1. 创建 Node.js WebSocket 服务
+
+```javascript
+// server.js
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8081 });
+
+wss.on('connection', function connection(ws, req) {
+  console.log('客户端已连接, URL:', req.url);
+
+  ws.on('message', function incoming(data) {
+    console.log('收到:', data.toString());
+    // 原样返回消息（回声）
+    ws.send(`服务端回复: ${data}`);
+  });
+
+  ws.send('连接成功！欢迎使用 ohosHttp WebSocket 代理');
+});
+
+console.log('WebSocket 服务运行在 ws://localhost:8081');
+```
+
+启动：
+```bash
+node server.js
+```
+
+#### 2. 配置 ohosHttp
+
+```toml
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./www"
+domains = ["example.com"]
+
+# 将 /ws 路径转发到 WebSocket 后端
+[[server.location]]
+path = "/ws"
+proxy_pass = "http://127.0.0.1:8081"
+```
+
+启动 ohosHttp：
+```bash
+ohosHttp -b 0.0.0.0:8080
+```
+
+#### 3. 客户端连接
+
+```javascript
+// client.js
+const WebSocket = require('ws');
+const ws = new WebSocket('ws://example.com:8080/ws');
+
+ws.on('open', function open() {
+  ws.send('你好，ohosHttp!');
+});
+
+ws.on('message', function incoming(data) {
+  console.log('收到:', data.toString());
+});
+
+ws.on('error', function error(err) {
+  console.error('连接错误:', err.message);
+});
+```
+
+运行：
+```bash
+node client.js
+# 输出: 收到: 连接成功！欢迎使用 ohosHttp WebSocket 代理
+# 输出: 收到: 服务端回复: 你好，ohosHttp!
+```
+
+### 多路径 WebSocket 代理
+
+可以为不同路径配置不同的 WebSocket 后端：
+
+```toml
+[[server]]
+bind = "0.0.0.0:8080"
+root = "./www"
+domains = ["example.com"]
+
+# 聊天 WebSocket
+[[server.location]]
+path = "/chat"
+proxy_pass = "http://127.0.0.1:9001"
+
+# 通知 WebSocket
+[[server.location]]
+path = "/notify"
+proxy_pass = "http://127.0.0.1:9002"
+
+# 游戏 WebSocket
+[[server.location]]
+path = "/game"
+proxy_pass = "http://127.0.0.1:9003"
+```
+
+### 与负载均衡配合
+
+WebSocket 代理同样支持负载均衡后端：
+
+```toml
+[[server.location]]
+path = "/ws"
+load_balance_strategy = "round_robin"
+[[server.location.load_balance_targets]]
+address = "http://127.0.0.1:9001"
+[[server.location.load_balance_targets]]
+address = "http://127.0.0.1:9002"
+[[server.location.load_balance_targets]]
+address = "http://127.0.0.1:9003"
+```
+
+> **注意**：WebSocket 是长连接，负载均衡器会尽量将同一客户端的 WebSocket 连接分发到同一后端（基于源 IP 哈希）。
+
+### 工作原理
+
+```
+客户端 (wss://example.com/ws)
+    │
+    │  HTTP Upgrade 请求 (Upgrade: websocket)
+    ▼
+ohosHttp (0.0.0.0:8080)
+    │
+    │  1. 检测到 WebSocket 升级
+    │  2. 查找匹配路径 /ws → proxy_pass = "http://127.0.0.1:8081"
+    │  3. TCP 连接到 127.0.0.1:8081
+    │  4. 转发原始握手请求头（保留 Upgrade、Connection、Sec-WebSocket-* 等）
+    ▼
+Node.js WebSocket 后端 (127.0.0.1:8081)
+    │
+    │  返回 101 Switching Protocols
+    ▼
+ohosHttp 回复 101 给客户端
+    │
+    │  tokio::select! 双向桥接
+    │  ┌──────────────────────────────┐
+    │  │  客户端 ──→ 后端 (copy)      │
+    │  │  后端   ──→ 客户端 (copy)    │
+    │  └──────────────────────────────┘
+    │  任意方向断开 → 隧道关闭
+    ▼
+连接保持，双向实时通信
+```
+
+### 关键特性
+
+| 特性 | 说明 |
+|:----|:-----|
+| **配置零额外开销** | 已有的 `proxy_pass` 规则自动支持 WebSocket，无需添加任何标记 |
+| **保留 WebSocket 头** | `Upgrade`、`Connection`、`Sec-WebSocket-*` 等关键头完整转发 |
+| **双向桥接** | 使用 `tokio::io::copy` 实现客户端↔后端全双工数据流 |
+| **自动清理** | 任一端断开连接，隧道自动关闭，资源释放 |
+| **错误处理** | 后端连接失败、非 101 响应、升级失败均有日志记录，不会挂起连接 |
+| **路径匹配** | 按最长前缀匹配，支持多路径多后端 |
+
+### 注意事项
+
+1. **后端必须支持 WebSocket**：ohosHttp 仅做代理转发，后端服务本身需要完整实现 WebSocket 协议
+2. **保持连接存活**：WebSocket 是长连接，请确保后端有合理的连接管理机制（心跳、超时断开）
+3. **跨域问题**：如果前端页面和 WebSocket 服务不同源，需要在 ohosHttp 中配置 CORS（见 [CORS 跨域配置](#cors-跨域配置) 章节）
+4. **端口开放**：确保 ohosHttp 和后端服务之间的网络可达
+5. **协议降级**：如果请求路径没有匹配的 `proxy_pass`，ohosHttp 自动降级为普通 HTTP 处理，WebSocket 握手请求会作为普通请求处理（通常返回 400 或 404）
+
+### 调试方法
+
+如果 WebSocket 代理不工作，可以按以下步骤排查：
+
+```bash
+# 1. 确认后端 WebSocket 服务正常运行
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Host: localhost" http://127.0.0.1:8081/
+# 应返回 HTTP/1.1 101 Switching Protocols
+
+# 2. 确认 ohosHttp 代理路径配置正确
+curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Host: example.com" http://127.0.0.1:8080/ws
+# 应返回 HTTP/1.1 101 Switching Protocols
+
+# 3. 查看 ohosHttp 日志
+tail -f server.log | grep -i "websocket"
+
+# 4. 使用 wscat 测试（需要安装）
+# npm install -g wscat
+wscat -c ws://127.0.0.1:8080/ws
+# 连接成功后会进入交互模式，可以发送和接收消息
 ```
 
 ---
