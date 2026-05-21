@@ -227,7 +227,15 @@ impl ManageHandler {
         if is_toml {
             // TOML 格式 — 验证后写入文件
             match toml::from_str::<AppConfig>(&body_str) {
-                Ok(_new_cfg) => {
+                Ok(ref new_cfg) => {
+                    // 验证配置内容的安全性
+                    if let Err(e) = validate_app_config(new_cfg) {
+                        return json_response(StatusCode::BAD_REQUEST, &json!({
+                            "code": 400,
+                            "message": e,
+                            "error": "VALIDATION_ERROR"
+                        }));
+                    }
                     // 写入配置文件
                     if let Err(e) = std::fs::write(config_path, &body_str) {
                         return json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({
@@ -548,4 +556,45 @@ pub fn is_manage_path(path: &str) -> bool {
 /// 增加全局请求计数器
 pub fn inc_requests() {
     GLOBAL_REQUESTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// 验证 AppConfig 配置内容的安全性
+/// 在通过管理 API 写入配置时调用，防止危险配置
+fn validate_app_config(cfg: &AppConfig) -> Result<(), String> {
+    for (i, srv) in cfg.server.iter().enumerate() {
+        // 根目录不能为空
+        if srv.root.trim().is_empty() {
+            return Err(format!("server[{}].root 不能为空", i));
+        }
+
+        // 检查 proxy_pass 是否指向内网地址
+        for (j, loc) in srv.location.iter().enumerate() {
+            if let Some(proxy_pass) = &loc.proxy_pass {
+                // 检查是否为内网地址格式
+                let lower = proxy_pass.to_lowercase();
+                if lower.contains("://127.0.0.") || lower.contains("://localhost") ||
+                   lower.contains("://10.") || lower.contains("://172.16.") ||
+                   lower.contains("://192.168.") || lower.contains("://[::1]") {
+                    return Err(format!(
+                        "server[{}].location[{}].proxy_pass 不能指向内网地址: {}",
+                        i, j, proxy_pass
+                    ));
+                }
+            }
+
+            // 检查 load_balance_targets 是否指向内网
+            for (k, target) in loc.load_balance_targets.iter().enumerate() {
+                let lower = target.url.to_lowercase();
+                if lower.contains("://127.0.0.") || lower.contains("://localhost") ||
+                   lower.contains("://10.") || lower.contains("://172.16.") ||
+                   lower.contains("://192.168.") || lower.contains("://[::1]") {
+                    return Err(format!(
+                        "server[{}].location[{}].load_balance_targets[{}] 不能指向内网地址: {}",
+                        i, j, k, target.url
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }

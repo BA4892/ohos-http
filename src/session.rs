@@ -207,37 +207,51 @@ impl SessionStore {
     }
 }
 
-/// 生成随机 session ID
+/// 生成随机 session ID（使用 /dev/urandom + 时间 + PID，不引入额外依赖）
 fn generate_session_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    // 从 /dev/urandom 获取 8 字节真随机数
+    let random_bytes: [u8; 8] = std::fs::read("/dev/urandom")
+        .ok()
+        .and_then(|buf| {
+            if buf.len() >= 8 {
+                let mut arr = [0u8; 8];
+                arr.copy_from_slice(&buf[..8]);
+                Some(arr)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            // 后备：系统时间 + PID + 地址随机化（极低概率场景，如容器无 /dev/urandom）
+            let fallback = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos() as u64;
+            fallback.wrapping_mul(6364136223846793005).to_ne_bytes()
+        });
+
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_nanos();
+    let pid = std::process::id();
 
-    // 组合时间戳和随机数
-    let random_part: u64 = {
-        // 简单的随机数生成（不引入额外依赖）
-        let ptr = &nanos as *const u128 as usize;
-        (ptr.wrapping_mul(6364136223846793005)).wrapping_add(1442695040888963407) as u64
-    };
+    // 混合多个熵源
+    let mut hash: u64 = u64::from_ne_bytes(random_bytes);
+    hash ^= nanos as u64;
+    hash = hash.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    hash ^= (pid as u64).wrapping_shl(32);
+    hash = hash.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    hash ^= (nanos >> 32) as u64;
 
-    let combined = format!("{:x}{:x}{:x}", nanos, random_part, fast_hash(&nanos.to_ne_bytes()));
-    // 截取 32 字符作为 session ID
+    let combined = format!("{:x}{:x}", nanos, hash);
     if combined.len() > 32 {
         combined[..32].to_string()
     } else {
         format!("{:0>32}", combined)
     }
-}
-
-fn fast_hash(data: &[u8]) -> u64 {
-    let mut hash: u64 = 14695981039346656037;
-    for &b in data {
-        hash ^= b as u64;
-        hash = hash.wrapping_mul(1099511628211);
-    }
-    hash
 }
 
 #[cfg(test)]

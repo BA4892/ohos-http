@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use std::collections::HashSet;
+use std::net::{IpAddr, Ipv6Addr, ToSocketAddrs};
+use std::time::Duration;
 
 use bytes::Bytes;
 use hyper::body::Incoming;
@@ -27,9 +29,15 @@ pub struct ProxyClient {
 
 impl ProxyClient {
     pub fn new() -> Self {
+        let mut http_connector = HttpConnector::new();
+        http_connector.set_connect_timeout(Some(Duration::from_secs(10)));
+
         let client = Client::builder(
             hyper_util::rt::TokioExecutor::new()
-        ).build(HttpConnector::new());
+        )
+            .pool_idle_timeout(Duration::from_secs(30))
+            .pool_max_idle_per_host(16)
+            .build(http_connector);
         ProxyClient { client }
     }
 
@@ -61,6 +69,17 @@ impl ProxyClient {
         let proxy_uri: hyper::Uri = target.parse()
             .map_err(|e| format!("代理地址格式错误: {}", e))?;
 
+        // SSRF防护：阻止代理到内部/私有地址的请求
+        if let Some(host) = proxy_uri.host() {
+            let addrs = (host, 0u16).to_socket_addrs()
+                .map_err(|e| format!("DNS解析失败: {}", e))?;
+            for addr in addrs {
+                if is_private_ip(&addr.ip()) {
+                    return Err("SSRF blocked: proxy to internal/private addresses is not allowed".to_string());
+                }
+            }
+        }
+
         let mut proxy_req_builder = Request::builder()
             .uri(&proxy_uri)
             .method(&method);
@@ -90,6 +109,22 @@ impl ProxyClient {
             .map_err(|e| format!("代理请求失败: {}", e))?;
 
         Ok(resp)
+    }
+}
+
+/// 检查IP地址是否为私有/内部地址（SSRF防护）
+fn is_private_ip(ip: &IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => {
+            ipv4.octets()[0] == 127                    // 127.0.0.0/8 loopback
+                || ipv4.octets()[0] == 10              // 10.0.0.0/8
+                || (ipv4.octets()[0] == 172            // 172.16.0.0/12
+                    && ipv4.octets()[1] >= 16
+                    && ipv4.octets()[1] <= 31)
+                || (ipv4.octets()[0] == 192            // 192.168.0.0/16
+                    && ipv4.octets()[1] == 168)
+        }
+        IpAddr::V6(ipv6) => ipv6 == &Ipv6Addr::LOCALHOST,  // ::1
     }
 }
 

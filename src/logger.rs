@@ -15,6 +15,7 @@
 use chrono::Local;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tokio::sync::mpsc;
@@ -174,6 +175,7 @@ fn open_log_file(log_path: &str, date: &str, rotate_index: u32) -> File {
         .create(true)
         .append(true)
         .write(true)
+        .mode(0o600)
         .open(&path)
         .expect("无法打开日志文件")
 }

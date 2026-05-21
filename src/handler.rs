@@ -218,6 +218,19 @@ impl RequestHandler {
         let start = std::time::Instant::now();
         let path = uri.path();
 
+        // ─── 方法过滤：拒绝不安全的方法（TRACE/TRACK/CONNECT） ───
+        match *method {
+            Method::TRACE | Method::CONNECT => {
+                return Ok(error_response(405, "Method Not Allowed"));
+            }
+            _ => {}
+        }
+
+        // ─── 请求体大小限制（默认 10MB） ───
+        if body_bytes.len() > 10_485_760 {
+            return Ok(error_response(413, "Request Entity Too Large"));
+        }
+
         // ─── 管理 API 路由 ───
         if path.starts_with("/_ohos/") {
             if let Some(ref manage_handler) = self.manage_handler {
@@ -408,6 +421,7 @@ impl RequestHandler {
         let body_size: u64 = parts.headers.get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).unwrap_or(0);
         let duration_ms = start.elapsed().as_millis() as u64;
         self.add_cors_headers(&mut parts.headers, headers);
+        self.add_security_headers(&mut parts.headers);
 
         // Inject session cookie for new sessions
         if let Some(store) = &self.session_store {
@@ -616,6 +630,23 @@ impl RequestHandler {
             return origin == config_origin;
         }
         false
+    }
+
+    /// 添加安全响应头
+    fn add_security_headers(&self, headers: &mut HeaderMap) {
+        use http::HeaderName;
+        headers.insert(
+            HeaderName::from_static("x-content-type-options"),
+            http::HeaderValue::from_static("nosniff"),
+        );
+        headers.insert(
+            HeaderName::from_static("x-frame-options"),
+            http::HeaderValue::from_static("DENY"),
+        );
+        headers.insert(
+            HeaderName::from_static("referrer-policy"),
+            http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        );
     }
 
     /// 为响应添加 CORS 头（仅在 Origin 匹配时）
@@ -849,8 +880,28 @@ impl RequestHandler {
 
         // 防止路径穿越攻击
         let normalized = normalize_path(&file_path);
-        if !normalized.starts_with(&self.config.root) {
-            return Ok(error_response(403, "Forbidden"));
+        // 规范化 root 路径（处理相对路径 vs canonicalize 后的绝对路径比较）
+        let root_for_check = PathBuf::from(&self.config.root);
+        let root_normalized = if root_for_check.exists() {
+            root_for_check.canonicalize().unwrap_or(root_for_check)
+        } else {
+            root_for_check
+        };
+        if !normalized.starts_with(&root_normalized) {
+            // 如果 normalized 是相对路径而 root_normalized 是绝对路径，将 normalized 也转为绝对路径
+            if !root_normalized.as_os_str().is_empty() && normalized.is_relative() {
+                if let Ok(abs_normalized) = std::env::current_dir().map(|cwd| cwd.join(&normalized)) {
+                    if abs_normalized.starts_with(&root_normalized) {
+                        // 通过检查，继续使用 normalized
+                    } else {
+                        return Ok(error_response(403, "Forbidden"));
+                    }
+                } else {
+                    return Ok(error_response(403, "Forbidden"));
+                }
+            } else {
+                return Ok(error_response(403, "Forbidden"));
+            }
         }
 
         match fs::metadata(&normalized).await {
@@ -1300,6 +1351,14 @@ fn normalize_path(path: &Path) -> PathBuf {
             }
         }
     }
+
+    // 如果路径存在，解析符号链接防止符号链接逃避
+    if normalized.exists() {
+        if let Ok(canonical) = normalized.canonicalize() {
+            return canonical;
+        }
+    }
+
     normalized
 }
 
