@@ -221,7 +221,7 @@ impl RequestHandler {
             if limiter.is_blocked(remote_addr) {
                 let resp = error_response(403, "Forbidden: Your IP is blocked");
                 let (mut parts, body) = resp.into_parts();
-                self.add_cors_headers(&mut parts.headers);
+                self.add_cors_headers(&mut parts.headers, headers);
                 if let Some(logger) = &self.access_logger {
                     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("-");
                     let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("-");
@@ -233,7 +233,7 @@ impl RequestHandler {
             if !limiter.check(remote_addr) {
                 let resp = error_response(429, "Too Many Requests");
                 let (mut parts, body) = resp.into_parts();
-                self.add_cors_headers(&mut parts.headers);
+                self.add_cors_headers(&mut parts.headers, headers);
                 if let Some(logger) = &self.access_logger {
                     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("-");
                     let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("-");
@@ -250,7 +250,7 @@ impl RequestHandler {
             if !self.config.domains.iter().any(|d| d == hostname) {
                 let resp = error_response(403, "Forbidden: Direct IP access is not allowed");
                 let (mut parts, body) = resp.into_parts();
-                self.add_cors_headers(&mut parts.headers);
+                self.add_cors_headers(&mut parts.headers, headers);
                 if let Some(logger) = &self.access_logger {
                     let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("-");
                     let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("-");
@@ -273,7 +273,7 @@ impl RequestHandler {
 
         // CORS preflight
         if *method == Method::OPTIONS {
-            let resp = self.cors_preflight_response();
+            let resp = self.cors_preflight_response(headers);
             return Ok(resp);
         }
 
@@ -292,7 +292,7 @@ impl RequestHandler {
         if !has_reverse_proxy && is_path_forbidden(&final_path, &self.config.forbidden_dirs, &self.config.forbidden_files) {
             let resp = error_response(403, "Forbidden: Access to this resource is denied");
             let (mut parts, body) = resp.into_parts();
-            self.add_cors_headers(&mut parts.headers);
+            self.add_cors_headers(&mut parts.headers, headers);
             if let Some(logger) = &self.access_logger {
                 let referer = headers.get("referer").and_then(|v| v.to_str().ok()).unwrap_or("-");
                 let ua = headers.get("user-agent").and_then(|v| v.to_str().ok()).unwrap_or("-");
@@ -311,7 +311,7 @@ impl RequestHandler {
                         let mut new_resp = Response::new(Full::from(body_bytes_inner));
                         *new_resp.status_mut() = resp_parts.status;
                         *new_resp.headers_mut() = resp_parts.headers;
-                        self.add_cors_headers(new_resp.headers_mut());
+                        self.add_cors_headers(new_resp.headers_mut(), headers);
                         new_resp
                     }
                     Err(e) => error_response(502, &format!("Bad Gateway: {}", e))
@@ -327,7 +327,7 @@ impl RequestHandler {
                             let mut new_resp = Response::new(Full::from(body_bytes_inner));
                             *new_resp.status_mut() = resp_parts.status;
                             *new_resp.headers_mut() = resp_parts.headers;
-                            self.add_cors_headers(new_resp.headers_mut());
+                            self.add_cors_headers(new_resp.headers_mut(), headers);
                             new_resp
                         }
                         Err(e) => error_response(502, &format!("Bad Gateway: {}", e))
@@ -355,7 +355,7 @@ impl RequestHandler {
         let status = parts.status.as_u16();
         let body_size: u64 = parts.headers.get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()).unwrap_or(0);
         let duration_ms = start.elapsed().as_millis() as u64;
-        self.add_cors_headers(&mut parts.headers);
+        self.add_cors_headers(&mut parts.headers, headers);
 
         // Inject session cookie for new sessions
         if let Some(store) = &self.session_store {
@@ -535,11 +535,14 @@ impl RequestHandler {
         }
     }
 
-    /// 生成 CORS 预检响应
-    fn cors_preflight_response(&self) -> Response<ResponseBody> {
+    /// 生成 CORS 预检响应（仅当 Origin 匹配时返回 CORS 头）
+    fn cors_preflight_response(&self, req_headers: &HeaderMap) -> Response<ResponseBody> {
+        if !self.is_origin_allowed(req_headers) {
+            return error_response(403, "CORS: Origin not allowed");
+        }
         let mut resp = Response::new(Full::from(Bytes::new()));
         *resp.status_mut() = hyper::StatusCode::NO_CONTENT;
-        self.add_cors_headers(resp.headers_mut());
+        self.add_cors_headers(resp.headers_mut(), req_headers);
         resp.headers_mut().insert(
             hyper::header::ACCESS_CONTROL_MAX_AGE,
             "86400".parse().unwrap()
@@ -547,22 +550,45 @@ impl RequestHandler {
         resp
     }
 
-    /// 为响应添加 CORS 头
-    fn add_cors_headers(&self, headers: &mut HeaderMap) {
-        if !self.config.cors_origin.is_empty() {
-            headers.insert(
-                hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-                self.config.cors_origin.parse().unwrap()
-            );
-            headers.insert(
-                hyper::header::ACCESS_CONTROL_ALLOW_METHODS,
-                self.config.cors_methods.parse().unwrap()
-            );
-            headers.insert(
-                hyper::header::ACCESS_CONTROL_ALLOW_HEADERS,
-                self.config.cors_headers.parse().unwrap()
-            );
+    /// 判断请求的 Origin 是否在 CORS 允许范围内
+    fn is_origin_allowed(&self, req_headers: &HeaderMap) -> bool {
+        let config_origin = &self.config.cors_origin;
+        if config_origin.is_empty() {
+            return false;
         }
+        if config_origin == "*" {
+            return true;
+        }
+        // 特定源：必须匹配请求的 Origin 头
+        if let Some(origin) = req_headers.get("origin").and_then(|v| v.to_str().ok()) {
+            return origin == config_origin;
+        }
+        false
+    }
+
+    /// 为响应添加 CORS 头（仅在 Origin 匹配时）
+    fn add_cors_headers(&self, headers: &mut HeaderMap, req_headers: &HeaderMap) {
+        if !self.is_origin_allowed(req_headers) {
+            return;
+        }
+        let origin_value = if self.config.cors_origin == "*" {
+            "*"
+        } else {
+            // 已验证匹配，直接使用请求的 Origin
+            req_headers.get("origin").unwrap().to_str().unwrap()
+        };
+        headers.insert(
+            hyper::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            origin_value.parse().unwrap()
+        );
+        headers.insert(
+            hyper::header::ACCESS_CONTROL_ALLOW_METHODS,
+            self.config.cors_methods.parse().unwrap()
+        );
+        headers.insert(
+            hyper::header::ACCESS_CONTROL_ALLOW_HEADERS,
+            self.config.cors_headers.parse().unwrap()
+        );
     }
 
     /// 根据文件路径查找匹配的 CGI 配置
