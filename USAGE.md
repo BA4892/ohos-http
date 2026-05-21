@@ -19,6 +19,14 @@
 - [缓存配置](#缓存配置)
 - [CORS 跨域配置](#cors-跨域配置)
 - [HTTP 方法支持](#http-方法支持)
+- [IP 直接访问控制](#ip-直接访问控制)
+- [限流与安全（CC/DDoS 防护）](#限流与安全ccddos-防护)
+  - [三层防护架构](#三层防护架构)
+  - [配置项说明](#配置项说明)
+  - [按场景合理配置](#按场景合理配置)
+- [禁止访问目录/文件](#禁止访问目录文件)
+- [Session 支持](#session-支持)
+- [负载均衡](#负载均衡)
 - [访问日志与日志轮转](#访问日志与日志轮转)
 - [停止与重启](#停止与重启)
 - [HTTPS 加密](#https-加密)
@@ -1033,6 +1041,7 @@ rate_limit = {
 | `max_concurrent_connections` | `100` | 每 IP 最大并发连接数（连接层 DDoS 防护，0=不限制） |
 | `ban_duration_seconds` | `300` | 自动封禁时长秒数（0=不启用自动封禁） |
 | `ban_threshold` | `3` | 30 秒滑动窗口内触发限流的次数达到此值则自动封禁 |
+| `connection_timeout_seconds` | `30` | 单连接最大处理时长（秒），慢速攻击防护（0=不限制） |
 
 ### 三层防护架构
 
@@ -1133,6 +1142,65 @@ IP 第 N 次违规─→ 违规计数 = N
 | Slow Loris（慢速请求） | 连接超时 + 并发限制 | `max_concurrent_connections` |
 | 僵尸网络轮换 IP | 自动封禁（轮换后继续触发） | `ban_threshold`, `ban_duration_seconds` |
 | 应用层 DDoS（低频慢速） | 请求限流 | 调低 `requests_per_second` |
+
+### 按场景合理配置
+
+根据实际部署场景调整防护参数，避免误伤正常用户。
+
+#### 场景 A：高流量 API 服务
+
+```toml
+rate_limit = {
+  enabled = true,
+  requests_per_second = 500,        # 高并发 API，放宽请求限制
+  burst_size = 1000,                # 允许更大的突发流量
+  connections_per_second = 200,     # 每 IP 每秒 200 连接（长连接场景）
+  max_concurrent_connections = 500, # 每 IP 最多 500 并发
+  ban_duration_seconds = 600,       # 封禁 10 分钟
+  ban_threshold = 5,                # 5 次违规才封禁（避免误封 SDK 重试）
+}
+```
+
+#### 场景 B：小型博客/公司官网
+
+```toml
+rate_limit = {
+  enabled = true,
+  requests_per_second = 30,         # 流量小，收紧限制
+  burst_size = 60,
+  connections_per_second = 10,      # 每 IP 每秒 10 连接足矣
+  max_concurrent_connections = 20,  # 并发连接也很少
+  ban_duration_seconds = 600,       # 封禁 10 分钟
+  ban_threshold = 2,                # 违规 2 次即封禁
+}
+```
+
+#### 场景 C：文件下载站/大文件服务
+
+```toml
+rate_limit = {
+  enabled = true,
+  requests_per_second = 50,         # 下载请求本身不多
+  burst_size = 100,
+  connections_per_second = 30,      # 下载工具可能多连接
+  max_concurrent_connections = 10,  # 但每 IP 并发连接应限制（避免多线程抢带宽）
+  ban_duration_seconds = 900,       # 封禁 15 分钟
+  ban_threshold = 3,
+}
+```
+
+#### 场景 D：内网服务（无攻击风险）
+
+```toml
+rate_limit = {
+  enabled = true,                   # 仍保留基础防护
+  requests_per_second = 10000,      # 基本不限制
+  burst_size = 20000,
+  connections_per_second = 0,       # 0 = 不限制
+  max_concurrent_connections = 0,   # 0 = 不限制
+  ban_duration_seconds = 0,         # 0 = 不启用自动封禁
+}
+```
 
 ### IP 黑名单
 
@@ -1650,6 +1718,12 @@ ohosHttp 在启动时显示一个信息画面，包含：
 - 伪静态重写规则列表
 - 反向代理和路径规则
 - CGI 解释器配置
+- **限流与安全状态**（如启用则显示行）
+  - `请求限流` — 显示每 IP 每秒请求数限制和突发量
+  - `CC 连接限流` — 显示连接速率和并发连接限制
+  - `自动封禁` — 显示违规阈值和封禁时长
+  - `黑名单 IP` — 显示黑名单条目数
+  - `自定义限流` — 显示自定义限流的 IP 数
 - 禁止访问规则数量（目录/文件）
 - 启动状态提示
 
@@ -1710,7 +1784,36 @@ ohosHttp -a 127.0.0.1:8081 -r ./www
 - 检查 PID 文件写入权限
 - 使用 `ohosHttp` 前台启动查看错误信息（不加 `-d`）
 
-### 6. 如何重启服务
+### 6. 返回 429 Too Many Requests
+
+```
+HTTP/1.1 429 Too Many Requests
+```
+
+原因：客户端 IP 触发了请求限流，请求速率超过了配置的 `requests_per_second`。
+
+排查与解决：
+- 检查限流配置是否过紧：`rate_limit = { requests_per_second = 200, burst_size = 400 }`
+- 添加白名单绕过内部 IP：`whitelist = ["127.0.0.1", "192.168.*.*"]`
+- 查看服务器启动日志，确认当前限流参数
+- 如果是正常业务高峰，按需放宽 `requests_per_second` 和 `burst_size`
+
+### 7. 返回 403 Forbidden（非文件权限问题）
+
+```
+HTTP/1.1 403 Forbidden
+```
+
+可能原因及对策：
+
+| 原因 | 表现 | 对策 |
+|:-----|:-----|:-----|
+| IP 在黑名单 | 始终 403，所有路径 | 检查 `blacklist` 配置 |
+| IP 被自动封禁 | 请求限流达阈值后出现 403 | 封禁到期自动恢复，或调高 `ban_threshold` |
+| 访问禁止目录 | 特定路径 403 | 检查 `forbidden_dirs` 配置 |
+| 禁止文件类型 | 特定后缀 403 | 检查 `forbidden_files` 配置 |
+
+### 8. 如何重启服务
 
 ```bash
 # 使用 PID 文件

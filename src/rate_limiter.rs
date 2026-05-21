@@ -377,8 +377,6 @@ impl RateLimiter {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::thread;
-    use std::time::Duration;
 
     fn make_limiter() -> RateLimiter {
         RateLimiter::new_full(

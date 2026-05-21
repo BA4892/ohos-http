@@ -183,9 +183,6 @@ impl HttpServer {
         }
 
         let rate_limiter = handler.rate_limiter_ref();
-        let conn_timeout = self.config.rate_limit.as_ref()
-            .filter(|rl| rl.enabled && rl.connection_timeout_seconds > 0)
-            .map(|rl| std::time::Duration::from_secs(rl.connection_timeout_seconds));
 
         // ─── 主 accept 循环 (TCP + TLS) — 协程层：每个连接一个轻量级异步任务 ───
         loop {
@@ -210,7 +207,6 @@ impl HttpServer {
 
                             let handler = handler.clone();
                             let tls_config = tls_config.clone();
-                            let conn_timeout = conn_timeout;
 
                             let remote_for_log = remote.clone();
                             // 每个连接一个独立异步任务（协程），在 Tokio 线程池中调度
