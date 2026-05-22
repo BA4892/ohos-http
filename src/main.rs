@@ -131,7 +131,7 @@ fn main() {
     }
 
     // 加载配置
-    let app_config = load_config(&args);
+    let mut app_config = load_config(&args);
 
     // 设置管理 API 认证（fork 前设置，子进程继承）
     if !args.manage_auth.is_empty() {
@@ -142,6 +142,14 @@ fn main() {
     // 初始化站点追踪数组（必须在 fork 前调用）
     manage::init_site_tracking(app_config.server.len());
     info!("已初始化 {} 个站点的追踪数组", app_config.server.len());
+
+    // ─── 路径解析：在 daemonize 之前将所有相对路径转成绝对路径 ───
+    // 守护进程化后 chdir("/") 会导致相对路径失效，提前转成绝对路径
+    resolve_relative_paths(&mut app_config);
+
+    // ─── 启动前校验 ───
+    // 在 daemonize 之前校验，错误可以正常输出到终端
+    validate_config(&app_config);
 
     // 确定 Worker 数量
     let worker_count = determine_workers(&app_config);
@@ -154,10 +162,6 @@ fn main() {
         }
         info!("ohosHttp 已转入后台运行 (PID: {})", std::process::id());
     }
-
-    // ─── 启动前校验 ───
-    // 在显示启动画面和启动 Worker 之前，检查所有可提前发现的配置错误
-    validate_config(&cfg);
 
     // ─── Master 进程 ───
     run_master(&mut cfg, worker_count);
@@ -198,6 +202,69 @@ fn validate_config(app_config: &AppConfig) {
         }
         error!("提示: 请检查配置文件中相关路径是否存在且当前用户有写入权限。");
         process::exit(1);
+    }
+}
+
+/// 将所有相对路径转成绝对路径（在 daemonize/chdir("/") 之前调用）
+fn resolve_relative_paths(app_config: &mut AppConfig) {
+    use std::path::Path;
+
+    for srv in &mut app_config.server {
+        // root 目录
+        srv.root = resolve_to_absolute(&srv.root);
+
+        // TLS 证书/密钥
+        if let Some(ref mut cert) = srv.cert {
+            *cert = resolve_to_absolute(cert);
+        }
+        if let Some(ref mut key) = srv.key {
+            *key = resolve_to_absolute(key);
+        }
+
+        // 访问日志路径
+        if let Some(ref mut log_path) = srv.access_log {
+            *log_path = resolve_to_absolute(log_path);
+        }
+
+        // location 中的本地根目录
+        for loc in &mut srv.location {
+            if let Some(ref mut loc_root) = loc.root {
+                *loc_root = resolve_to_absolute(loc_root);
+            }
+            // CGI 解释器路径（通常已是绝对路径，但以防万一）
+            if let Some(ref mut cgi) = loc.cgi {
+                if Path::new(&cgi.interpreter).is_relative() {
+                    cgi.interpreter = resolve_to_absolute(&cgi.interpreter);
+                }
+            }
+        }
+
+        // 全局 CGI 解释器路径
+        for cgi in &mut srv.cgi {
+            if Path::new(&cgi.interpreter).is_relative() {
+                cgi.interpreter = resolve_to_absolute(&cgi.interpreter);
+            }
+        }
+    }
+}
+
+/// 将相对路径转为绝对路径（基于当前工作目录）
+fn resolve_to_absolute(path: &str) -> String {
+    let p = std::path::Path::new(path);
+    if p.is_relative() {
+        if let Ok(cwd) = std::env::current_dir() {
+            let abs = cwd.join(p);
+            // 如果路径已存在，用 canonicalize 获取规范路径（去除 ./ ../）
+            if let Ok(canonical) = abs.canonicalize() {
+                canonical.to_string_lossy().to_string()
+            } else {
+                abs.to_string_lossy().to_string()
+            }
+        } else {
+            path.to_string()
+        }
+    } else {
+        path.to_string()
     }
 }
 
