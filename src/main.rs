@@ -139,6 +139,10 @@ fn main() {
         info!("管理 API 已启用 (/_ohos/*)，认证 Token 已配置");
     }
 
+    // 初始化站点追踪数组（必须在 fork 前调用）
+    manage::init_site_tracking(app_config.server.len());
+    info!("已初始化 {} 个站点的追踪数组", app_config.server.len());
+
     // 确定 Worker 数量
     let worker_count = determine_workers(&app_config);
     let mut cfg = app_config;
@@ -151,8 +155,50 @@ fn main() {
         info!("ohosHttp 已转入后台运行 (PID: {})", std::process::id());
     }
 
+    // ─── 启动前校验 ───
+    // 在显示启动画面和启动 Worker 之前，检查所有可提前发现的配置错误
+    validate_config(&cfg);
+
     // ─── Master 进程 ───
     run_master(&mut cfg, worker_count);
+}
+
+/// 启动前配置文件校验
+///
+/// 在显示启动画面和创建 Worker 之前，检查所有可提前发现的配置问题。
+/// 如果发现问题，打印所有错误并退出（不启动任何进程）。
+fn validate_config(app_config: &AppConfig) {
+    use std::path::Path;
+    use logger::AccessLogger;
+
+    let mut errors: Vec<String> = Vec::new();
+
+    for (i, srv) in app_config.server.iter().enumerate() {
+        // 检查根目录是否存在
+        if !Path::new(&srv.root).exists() {
+            errors.push(format!(
+                "站点 #{}: 根目录不存在 '{}'", i + 1, srv.root
+            ));
+        }
+
+        // 检查 access_log 路径是否可写入
+        if let Some(ref log_path) = srv.access_log {
+            if let Err(e) = AccessLogger::validate_path(log_path) {
+                errors.push(format!(
+                    "站点 #{}: 访问日志路径 '{}': {}", i + 1, log_path, e
+                ));
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        error!("配置文件校验失败 — 以下问题需要修复:");
+        for err in &errors {
+            error!("  ✗ {}", err);
+        }
+        error!("提示: 请检查配置文件中相关路径是否存在且当前用户有写入权限。");
+        process::exit(1);
+    }
 }
 
 // ============================================================================
@@ -347,9 +393,9 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
     let (shutdown_tx, _) = tokio::sync::watch::channel(false);
 
     // 按 bind 地址分组：同一端口的多个站点共享一个 Listener
-    let mut groups: HashMap<&str, Vec<&config::ServerConfig>> = HashMap::new();
-    for srv in servers {
-        groups.entry(srv.bind.as_str()).or_default().push(srv);
+    let mut groups: HashMap<&str, Vec<(&config::ServerConfig, usize)>> = HashMap::new();
+    for (i, srv) in servers.iter().enumerate() {
+        groups.entry(srv.bind.as_str()).or_default().push((srv, i));
     }
 
     // 启动所有唯一端口（每个端口一个 Listener）
@@ -357,12 +403,13 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
     for (_bind, configs) in groups {
         if configs.len() == 1 {
             // 单站点 — 使用常规 HttpServer
+            let (srv_cfg, site_idx) = configs[0];
             let shutdown_rx = shutdown_tx.subscribe();
-            let srv_config = configs[0].clone();
+            let srv_config = srv_cfg.clone();
             let server = if let Some(ref manage) = manage_handler {
-                HttpServer::new_with_manage(srv_config, manage.clone())
+                HttpServer::new_with_manage_and_index(srv_config, manage.clone(), site_idx)
             } else {
-                HttpServer::new(srv_config)
+                HttpServer::new_with_index(srv_config, site_idx)
             };
             handles.push(tokio::spawn(async move {
                 if let Err(e) = server.start(shutdown_rx).await {
@@ -372,7 +419,9 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
         } else {
             // 多站点共享端口 — 使用 VirtualHostServer + 应用层路由
             let shutdown_rx = shutdown_tx.subscribe();
-            let shared_configs: Vec<config::ServerConfig> = configs.into_iter().cloned().collect();
+            let shared_configs: Vec<config::ServerConfig> = configs.iter()
+                .map(|(cfg, _)| (*cfg).clone())
+                .collect();
             let router = VirtualHostRouter::new(shared_configs, manage_handler.clone());
             let vh_server = VirtualHostServer::new(router);
             handles.push(tokio::spawn(async move {
@@ -528,10 +577,15 @@ fn daemonize(pidfile: &str) -> Result<(), String> {
         libc::close(2);
     }
 
-    // 写 PID 文件
+    // 写 PID 文件 — 用户显式配置了 pid_file 路径，若无法写入则报错
     if !pidfile.is_empty() {
         if let Err(e) = std::fs::write(pidfile, std::process::id().to_string()) {
-            warn!("写入 PID 文件失败: {}", e);
+            return Err(format!(
+                "无法写入 PID 文件 '{}': {}.\n\
+                 请检查该路径是否存在且当前用户有写入权限。\n\
+                 如果不需要 PID 文件，请在配置文件中移除 pid_file 配置项。",
+                pidfile, e
+            ));
         }
     }
 

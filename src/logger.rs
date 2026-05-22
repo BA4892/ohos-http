@@ -46,6 +46,36 @@ pub struct AccessLogger {
 }
 
 impl AccessLogger {
+    /// 验证访问日志路径是否可写入（在 Master 进程调用，提前报错）
+    ///
+    /// 如果用户配置了 `access_log`，但路径不可写入，返回错误信息。
+    /// 这确保在显示启动画面和启动 Worker 之前就能发现问题。
+    pub fn validate_path(log_path: &str) -> Result<(), String> {
+        // 尝试创建父目录
+        let log_path_buf = PathBuf::from(log_path);
+        let parent = log_path_buf.parent().unwrap_or(Path::new("."));
+        if let Err(e) = fs::create_dir_all(parent) {
+            return Err(format!(
+                "无法创建访问日志父目录 '{}': {}",
+                parent.display(),
+                e
+            ));
+        }
+        // 尝试创建/打开日志文件（追加模式）
+        match OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o644)
+            .open(log_path)
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!(
+                "无法打开访问日志文件 '{}': {}",
+                log_path, e
+            )),
+        }
+    }
+
     /// 创建一个新的访问日志写入器
     ///
     /// * `log_path` - 日志文件路径（如 `./logs/access.log`）
@@ -54,9 +84,17 @@ impl AccessLogger {
         let _ = fs::create_dir_all(PathBuf::from(log_path).parent().unwrap_or(Path::new(".")));
 
         // 预创建第一个日志文件，以便快速验证权限和路径
+        // 用户显式配置了 access_log 路径，若无法写入则直接报错退出
         let now = Local::now();
         let current_date = now.format("%Y-%m-%d").to_string();
-        let _file = open_log_file(log_path, &current_date, 0);
+        if let Err(e) = open_log_file(log_path, &current_date, 0) {
+            panic!(
+                "无法打开访问日志文件 '{}': {}.\n\
+                 请检查该路径是否存在且当前用户有写入权限。\n\
+                 如果不需要访问日志，请在配置文件中移除 access_log 配置项。",
+                log_path, e
+            );
+        }
 
         AccessLogger {
             log_path: log_path.to_string(),
@@ -115,8 +153,16 @@ async fn run_log_writer(
 ) {
     let now = Local::now();
     let mut current_date = now.format("%Y-%m-%d").to_string();
-    let mut file = open_log_file(log_path, &current_date, 0);
-    let mut current_size: u64 = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let (mut file, mut current_size) = match open_log_file(log_path, &current_date, 0) {
+        Ok(f) => {
+            let size = f.metadata().map(|m| m.len()).unwrap_or(0);
+            (Some(f), size)
+        }
+        Err(e) => {
+            log::error!("无法打开日志文件 ({}), 日志写入已停止: {}", log_path, e);
+            (None, 0)
+        }
+    };
 
     while let Some(entry) = rx.recv().await {
         let now = Local::now();
@@ -133,29 +179,55 @@ async fn run_log_writer(
 
         // 日期变更 → 新建文件
         if today != current_date {
-            file = open_log_file(log_path, &today, 0);
-            current_date = today;
-            current_size = 0;
+            file = match open_log_file(log_path, &today, 0) {
+                Ok(f) => {
+                    current_date = today;
+                    current_size = 0;
+                    Some(f)
+                }
+                Err(e) => {
+                    log::warn!("日期变更后无法打开日志文件 ({}): {}", log_path, e);
+                    file
+                }
+            };
         }
 
         // 大小超限 → 轮转
-        let needs_rotate = max_size > 0 && current_size + log_line_len > max_size;
+        let needs_rotate = max_size > 0
+            && current_size + log_line_len > max_size
+            && file.is_some();
 
         if needs_rotate {
             let date_for_rotate = current_date.clone();
             rotate_log_file(log_path, &date_for_rotate);
-            file = open_log_file(log_path, &date_for_rotate, 0);
-            current_size = 0;
+            file = match open_log_file(log_path, &date_for_rotate, 0) {
+                Ok(f) => {
+                    current_size = 0;
+                    Some(f)
+                }
+                Err(e) => {
+                    log::warn!("轮转后无法打开日志文件 ({}): {}", log_path, e);
+                    file
+                }
+            };
         }
 
-        let _ = file.write_all(log_line.as_bytes());
-        let _ = file.flush();
-        current_size += log_line_len;
+        // 写入日志行（仅当文件打开成功时）
+        if let Some(ref mut f) = file {
+            let _ = write_to_file(f, &log_line);
+            current_size += log_line_len;
+        }
     }
 }
 
+/// 写入一行日志并刷新
+fn write_to_file(file: &mut File, line: &str) -> std::io::Result<()> {
+    file.write_all(line.as_bytes())?;
+    file.flush()
+}
+
 /// 打开日志文件（追加模式，自动创建）
-fn open_log_file(log_path: &str, date: &str, rotate_index: u32) -> File {
+fn open_log_file(log_path: &str, date: &str, rotate_index: u32) -> std::io::Result<File> {
     let dot = PathBuf::from(".");
     let stem = PathBuf::from(log_path);
     let ext = stem.extension().unwrap_or_default().to_str().unwrap_or("log").to_string();
@@ -177,7 +249,6 @@ fn open_log_file(log_path: &str, date: &str, rotate_index: u32) -> File {
         .write(true)
         .mode(0o600)
         .open(&path)
-        .expect("无法打开日志文件")
 }
 
 /// 轮转日志文件：将当前日志文件重命名为 .1 版本
