@@ -61,6 +61,7 @@ pub type ResponseBody = Full<Bytes>;
 /// 请求处理器
 pub struct RequestHandler {
     config: ServerConfig,
+    site_index: Option<usize>,
     rewrite_engine: RewriteEngine,
     proxy_client: Option<ProxyClient>,
     cache: Option<Arc<RwLock<MemCache>>>,
@@ -74,14 +75,22 @@ pub struct RequestHandler {
 
 impl RequestHandler {
     pub fn new(config: ServerConfig) -> Self {
-        Self::new_internal(config, None)
+        Self::new_internal(config, None, 0)
+    }
+
+    pub fn new_with_site_index(config: ServerConfig, site_index: usize) -> Self {
+        Self::new_internal(config, None, site_index)
     }
 
     pub fn new_with_manage(config: ServerConfig, manage_handler: ManageHandler) -> Self {
-        Self::new_internal(config, Some(manage_handler))
+        Self::new_internal(config, Some(manage_handler), 0)
     }
 
-    fn new_internal(config: ServerConfig, manage_handler: Option<ManageHandler>) -> Self {
+    pub fn new_with_manage_and_index(config: ServerConfig, manage_handler: ManageHandler, site_index: usize) -> Self {
+        Self::new_internal(config, Some(manage_handler), site_index)
+    }
+
+    fn new_internal(config: ServerConfig, manage_handler: Option<ManageHandler>, site_index: usize) -> Self {
 
         let rewrite_engine = RewriteEngine::new(&config.rewrite);
         let has_proxy = config.location.iter().any(|l| l.proxy_pass.is_some());
@@ -145,6 +154,7 @@ impl RequestHandler {
 
         RequestHandler {
             config,
+            site_index: Some(site_index),
             rewrite_engine,
             proxy_client,
             cache,
@@ -246,8 +256,11 @@ impl RequestHandler {
             return Ok(error_response(503, "Service Unavailable: server is paused"));
         }
 
-        // ─── 全局请求计数 ───
+        // ─── 全局请求计数 + 每站点计数 ───
         manage::inc_requests();
+        if let Some(idx) = self.site_index {
+            manage::inc_site_requests(idx);
+        }
 
         // ─── Rate limiting check ───
         if let Some(limiter) = &self.rate_limiter {

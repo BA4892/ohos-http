@@ -18,19 +18,25 @@
 //!
 //! # 接口列表
 //!
-//! | 方法   | 路径              | 说明                     |
-//! |--------|-------------------|--------------------------|
-//! | GET    | /_ohos/config     | 获取完整服务器配置        |
-//! | PUT    | /_ohos/config     | 更新配置（写入文件+热重载）|
-//! | POST   | /_ohos/start      | 恢复服务（取消暂停）      |
-//! | POST   | /_ohos/pause      | 暂停服务（返回 503）      |
-//! | POST   | /_ohos/stop       | 停止服务器                |
-//! | POST   | /_ohos/restart    | 热重启服务器              |
-//! | GET    | /_ohos/status     | 获取服务器状态            |
-//! | GET    | /_ohos/metrics    | 获取运行时指标            |
+//! | 方法   | 路径                        | 说明                           |
+//! |--------|-----------------------------|--------------------------------|
+//! | GET    | /_ohos/config               | 获取完整服务器配置              |
+//! | PUT    | /_ohos/config               | 更新配置（写入文件+热重载）     |
+//! | POST   | /_ohos/start                | 恢复服务（取消全局暂停）        |
+//! | POST   | /_ohos/pause                | 暂停服务（返回 503）            |
+//! | POST   | /_ohos/stop                 | 停止服务器                      |
+//! | POST   | /_ohos/restart              | 热重启服务器                    |
+//! | GET    | /_ohos/status               | 获取服务器状态 + 站点列表       |
+//! | GET    | /_ohos/metrics              | 获取运行时指标（含内存/CPU）    |
+//! | GET    | /_ohos/sites                | 获取每个站点的状态和指标        |
+//! | POST   | /_ohos/sites/{index}/pause  | 暂停指定站点                    |
+//! | POST   | /_ohos/sites/{index}/start  | 恢复指定站点                    |
+//! | POST   | /_ohos/sites/batch/pause    | 批量暂停（body: {"indices":[]}）|
+//! | POST   | /_ohos/sites/batch/start    | 批量恢复（body: {"indices":[]}）|
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use bytes::Bytes;
@@ -51,6 +57,73 @@ pub static PAUSED: AtomicBool = AtomicBool::new(false);
 /// 全局请求计数器
 pub static GLOBAL_REQUESTS: AtomicU64 = AtomicU64::new(0);
 
+/// 实时请求率追踪（5秒滑动窗口）
+static REQUEST_TIMESTAMPS: OnceLock<Mutex<VecDeque<Instant>>> = OnceLock::new();
+
+// ─── 每站点追踪（在 main() 中 init） ───
+
+/// 每站点暂停标志（索引与 config.server 列表对齐）
+static SITE_PAUSED: OnceLock<Vec<AtomicBool>> = OnceLock::new();
+
+/// 每站点请求计数器
+static SITE_REQUESTS: OnceLock<Vec<AtomicU64>> = OnceLock::new();
+
+/// 初始化站点追踪数组（在 fork 前调用一次）
+pub fn init_site_tracking(count: usize) {
+    let paused: Vec<AtomicBool> = (0..count).map(|_| AtomicBool::new(false)).collect();
+    let requests: Vec<AtomicU64> = (0..count).map(|_| AtomicU64::new(0)).collect();
+    let _ = SITE_PAUSED.set(paused);
+    let _ = SITE_REQUESTS.set(requests);
+}
+
+/// 获取站点暂停状态
+pub fn is_site_paused(index: usize) -> bool {
+    SITE_PAUSED.get()
+        .and_then(|vec| vec.get(index))
+        .map(|a| a.load(Ordering::SeqCst))
+        .unwrap_or(false)
+}
+
+/// 反转站点暂停状态
+pub fn toggle_site_pause(index: usize, paused: bool) {
+    if let Some(vec) = SITE_PAUSED.get() {
+        if let Some(atom) = vec.get(index) {
+            atom.store(paused, Ordering::SeqCst);
+        }
+    }
+}
+
+/// 增加指定站点的请求计数
+pub fn inc_site_requests(index: usize) {
+    if let Some(vec) = SITE_REQUESTS.get() {
+        if let Some(atom) = vec.get(index) {
+            atom.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// 获取指定站点请求计数
+pub fn get_site_requests(index: usize) -> u64 {
+    SITE_REQUESTS.get()
+        .and_then(|vec| vec.get(index))
+        .map(|a| a.load(Ordering::Relaxed))
+        .unwrap_or(0)
+}
+
+/// 获取所有站点的请求计数
+pub fn all_site_requests() -> Vec<u64> {
+    SITE_REQUESTS.get()
+        .map(|vec| vec.iter().map(|a| a.load(Ordering::Relaxed)).collect())
+        .unwrap_or_default()
+}
+
+/// 获取所有站点暂停状态
+pub fn all_site_paused() -> Vec<bool> {
+    SITE_PAUSED.get()
+        .map(|vec| vec.iter().map(|a| a.load(Ordering::SeqCst)).collect())
+        .unwrap_or_default()
+}
+
 /// 启动时间戳（Worker 启动时记录）
 pub fn worker_start_time() -> Instant {
     static START_TIME: OnceLock<Instant> = OnceLock::new();
@@ -69,6 +142,45 @@ pub fn set_manage_auth_token(token: &str) {
 #[allow(dead_code)]
 pub fn is_manage_enabled() -> bool {
     MANAGE_AUTH_TOKEN.get().is_some()
+}
+
+// ============================================================================
+//  进程资源信息（Linux /proc 接口）
+// ============================================================================
+
+/// 获取当前进程内存占用（RSS, KB）
+pub fn get_memory_kb() -> u64 {
+    // 从 /proc/self/status 中读取 VmRSS
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    for line in status.lines() {
+        if let Some(val) = line.strip_prefix("VmRSS:") {
+            let kb: u64 = val.trim().trim_end_matches("kB").trim().parse().unwrap_or(0);
+            return kb;
+        }
+    }
+    0
+}
+
+/// 获取当前进程 CPU 使用率（百分比，相对于单核）
+/// 返回 (user_cpu_percent, system_cpu_percent)
+pub fn get_cpu_percent() -> (f64, f64) {
+    // 从 /proc/self/stat 读取 utime, stime（clock ticks）
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let parts: Vec<&str> = stat.split_whitespace().collect();
+    if parts.len() < 15 {
+        return (0.0, 0.0);
+    }
+    let utime: u64 = parts[13].parse().unwrap_or(0);
+    let stime: u64 = parts[14].parse().unwrap_or(0);
+    let hertz: f64 = 100.0; // 常见的 CLK_TCK
+    let uptime_secs = worker_start_time().elapsed().as_secs_f64();
+    if uptime_secs <= 0.0 {
+        return (0.0, 0.0);
+    }
+    // CPU 百分比的估算：ticks / hertz / 运行秒数 * 100
+    let user_pct = (utime as f64 / hertz) / uptime_secs * 100.0;
+    let sys_pct = (stime as f64 / hertz) / uptime_secs * 100.0;
+    (user_pct.min(100.0), sys_pct.min(100.0))
 }
 
 // ============================================================================
@@ -113,7 +225,6 @@ impl ManageHandler {
         let response = match (method, path) {
             // ─── 配置管理 ───
             (&Method::GET, "/_ohos/config") => self.handle_get_config().await,
-
             (&Method::PUT, "/_ohos/config") => {
                 self.handle_put_config(body_bytes).await
             }
@@ -127,6 +238,22 @@ impl ManageHandler {
             // ─── 状态与指标 ───
             (&Method::GET, "/_ohos/status") => self.handle_status().await,
             (&Method::GET, "/_ohos/metrics") => self.handle_metrics().await,
+
+            // ─── 站点管理 ───
+            (&Method::GET, "/_ohos/sites") => self.handle_list_sites().await,
+
+            // ─── 批量操作 ───
+            (&Method::POST, "/_ohos/sites/batch/pause") => {
+                self.handle_batch_pause(body_bytes).await
+            }
+            (&Method::POST, "/_ohos/sites/batch/start") => {
+                self.handle_batch_start(body_bytes).await
+            }
+
+            // ─── 单站点操作（路径包含动态索引） ───
+            _ if path.starts_with("/_ohos/sites/") && *method == Method::POST => {
+                self.handle_site_action(path, body_bytes).await
+            }
 
             // ─── 未知路由 ───
             _ => {
@@ -420,12 +547,31 @@ impl ManageHandler {
         response
     }
 
+    // ──────── 内部工具 ────────
+
+    /// 发送 SIGHUP 信号给父进程触发热重载
+    fn send_sighup() {
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let ppid = unsafe { libc::getppid() };
+            if ppid > 1 {
+                log::info!("Management API: sending SIGHUP to parent PID {}", ppid);
+                unsafe { libc::kill(ppid, libc::SIGHUP); }
+            } else {
+                // 如果没有父进程，直接触发 SIGHUP
+                unsafe { libc::raise(libc::SIGHUP); }
+            }
+        });
+    }
+
     // ──────── GET /_ohos/status ────────
 
-    /// 获取服务器状态
+    /// 获取服务器状态（含每站点状态和请求数）
     async fn handle_status(&self) -> Response<Full<Bytes>> {
         let uptime = worker_start_time().elapsed();
         let uptime_secs = uptime.as_secs();
+        let site_paused_vec = all_site_paused();
+        let site_requests_vec = all_site_requests();
 
         let status = json!({
             "code": 0,
@@ -442,17 +588,21 @@ impl ManageHandler {
                     "uptime_human": format_human_duration(uptime_secs),
                     "pid": std::process::id(),
                     "ppid": unsafe { libc::getppid() },
+                    "worker_memory_kb": get_memory_kb(),
                 },
                 "config": {
                     "config_path": self.app_config.config_path,
                     "server_count": self.app_config.server.len(),
                 },
-                "sites": self.app_config.server.iter().map(|s| json!({
+                "sites": self.app_config.server.iter().enumerate().map(|(i, s)| json!({
+                    "index": i,
                     "bind": s.bind,
                     "root": s.root,
                     "domains": s.domains,
                     "https": s.cert.is_some(),
                     "workers": s.workers,
+                    "paused": site_paused_vec.get(i).copied().unwrap_or(false),
+                    "requests": site_requests_vec.get(i).copied().unwrap_or(0),
                 })).collect::<Vec<_>>(),
             }
         });
@@ -462,11 +612,14 @@ impl ManageHandler {
 
     // ──────── GET /_ohos/metrics ────────
 
-    /// 获取运行时指标
+    /// 获取运行时指标（含内存、CPU、每站点请求数）
     async fn handle_metrics(&self) -> Response<Full<Bytes>> {
         let uptime = worker_start_time().elapsed();
         let uptime_secs = uptime.as_secs();
         let total_requests = GLOBAL_REQUESTS.load(Ordering::Relaxed);
+        let (user_cpu, sys_cpu) = get_cpu_percent();
+        let memory_kb = get_memory_kb();
+        let site_requests_vec = all_site_requests();
 
         let metrics = json!({
             "code": 0,
@@ -475,6 +628,13 @@ impl ManageHandler {
                 "requests": {
                     "total": total_requests,
                     "per_second": if uptime_secs > 0 { total_requests as f64 / uptime_secs as f64 } else { 0.0 },
+                    "recent_per_second": get_recent_rps(),
+                    "sites": self.app_config.server.iter().enumerate().map(|(i, s)| json!({
+                        "index": i,
+                        "bind": s.bind,
+                        "root": s.root,
+                        "requests": site_requests_vec.get(i).copied().unwrap_or(0),
+                    })).collect::<Vec<_>>(),
                 },
                 "uptime": {
                     "seconds": uptime_secs,
@@ -484,9 +644,13 @@ impl ManageHandler {
                     "pid": std::process::id(),
                     "worker_index": 0,
                 },
-                // 这些是占位符，生产环境中可通过更细粒度的统计扩展
                 "memory": {
-                    "note": "Memory stats available via OS tools (e.g., /proc/self/status on Linux)"
+                    "rss_kb": memory_kb,
+                    "rss_mb": format!("{:.1} MB", memory_kb as f64 / 1024.0),
+                },
+                "cpu": {
+                    "user_percent": (user_cpu * 100.0).round() / 100.0,
+                    "system_percent": (sys_cpu * 100.0).round() / 100.0,
                 }
             }
         });
@@ -494,17 +658,177 @@ impl ManageHandler {
         json_response(StatusCode::OK, &metrics)
     }
 
-    // ──────── 内部工具 ────────
+    // ──────── GET /_ohos/sites ────────
 
-    /// 发送 SIGHUP 信号给父进程触发热重载
-    fn send_sighup() {
-        let ppid = unsafe { libc::getppid() };
-        if ppid > 1 {
-            log::info!("Management API: sending SIGHUP to parent PID {}", ppid);
-            unsafe { libc::kill(ppid, libc::SIGHUP); }
-        } else {
-            unsafe { libc::raise(libc::SIGHUP); }
+    /// 列出所有站点及其状态
+    async fn handle_list_sites(&self) -> Response<Full<Bytes>> {
+        let site_paused_vec = all_site_paused();
+        let site_requests_vec = all_site_requests();
+        let (user_cpu, sys_cpu) = get_cpu_percent();
+
+        let sites: Vec<_> = self.app_config.server.iter().enumerate().map(|(i, s)| json!({
+            "index": i,
+            "bind": s.bind,
+            "root": s.root,
+            "domains": s.domains,
+            "https": s.cert.is_some(),
+            "workers": s.workers,
+            "paused": site_paused_vec.get(i).copied().unwrap_or(false),
+            "requests": site_requests_vec.get(i).copied().unwrap_or(0),
+            "memory_kb": get_memory_kb(),
+            "cpu_user": user_cpu,
+            "cpu_system": sys_cpu,
+        })).collect();
+
+        json_response(StatusCode::OK, &json!({
+            "code": 0,
+            "message": "ok",
+            "data": {
+                "sites": sites,
+                "server_count": self.app_config.server.len(),
+            }
+        }))
+    }
+
+    // ──────── POST /_ohos/sites/{index}/pause — 暂停单站点 ────────
+
+    /// 处理单站点操作（暂停/恢复）
+    async fn handle_site_action(&self, path: &str, _body: Bytes) -> Response<Full<Bytes>> {
+        // 路径格式: /_ohos/sites/{index}/{action}
+        let parts: Vec<&str> = path.split('/').collect();
+        // parts = ["", "_ohos", "sites", "{index}", "{action}"]
+        if parts.len() < 5 {
+            return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400,
+                "message": "Invalid site action path",
+                "error": "INVALID_PATH"
+            }));
         }
+
+        let index: usize = match parts[3].parse() {
+            Ok(i) => i,
+            Err(_) => return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400,
+                "message": format!("Invalid site index: '{}'", parts[3]),
+                "error": "INVALID_INDEX"
+            })),
+        };
+
+        // 检查索引是否有效
+        if index >= self.app_config.server.len() {
+            return json_response(StatusCode::NOT_FOUND, &json!({
+                "code": 404,
+                "message": format!("Site index {} out of range (max: {})", index, self.app_config.server.len() - 1),
+                "error": "INDEX_OUT_OF_RANGE"
+            }));
+        }
+
+        let action = parts[4];
+        match action {
+            "pause" => {
+                toggle_site_pause(index, true);
+                json_response(StatusCode::OK, &json!({
+                    "code": 0,
+                    "message": format!("Site #{} paused", index),
+                    "data": { "index": index, "paused": true }
+                }))
+            }
+            "start" => {
+                toggle_site_pause(index, false);
+                json_response(StatusCode::OK, &json!({
+                    "code": 0,
+                    "message": format!("Site #{} started", index),
+                    "data": { "index": index, "paused": false }
+                }))
+            }
+            _ => json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400,
+                "message": format!("Unknown action '{}'. Supported: pause, start", action),
+                "error": "UNKNOWN_ACTION"
+            })),
+        }
+    }
+
+    // ──────── POST /_ohos/sites/batch/pause ────────
+
+    /// 批量暂停站点
+    async fn handle_batch_pause(&self, body_bytes: Bytes) -> Response<Full<Bytes>> {
+        let body_str = match String::from_utf8(body_bytes.to_vec()) {
+            Ok(s) => s,
+            Err(_) => return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400, "message": "Invalid UTF-8", "error": "INVALID_UTF8"
+            })),
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&body_str) {
+            Ok(v) => v,
+            Err(_) => return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400, "message": "Invalid JSON", "error": "INVALID_JSON"
+            })),
+        };
+
+        let indices: Vec<usize> = match parsed["indices"].as_array() {
+            Some(arr) => arr.iter()
+                .filter_map(|v| v.as_u64().map(|n| n as usize))
+                .filter(|&i| i < self.app_config.server.len())
+                .collect(),
+            None => return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400, "message": "Missing or invalid 'indices' field", "error": "MISSING_INDICES"
+            })),
+        };
+
+        let mut paused_count = 0;
+        for &idx in &indices {
+            toggle_site_pause(idx, true);
+            paused_count += 1;
+        }
+
+        json_response(StatusCode::OK, &json!({
+            "code": 0,
+            "message": format!("Paused {} sites", paused_count),
+            "data": { "paused_indices": indices, "count": paused_count }
+        }))
+    }
+
+    // ──────── POST /_ohos/sites/batch/start ────────
+
+    /// 批量恢复站点
+    async fn handle_batch_start(&self, body_bytes: Bytes) -> Response<Full<Bytes>> {
+        let body_str = match String::from_utf8(body_bytes.to_vec()) {
+            Ok(s) => s,
+            Err(_) => return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400, "message": "Invalid UTF-8", "error": "INVALID_UTF8"
+            })),
+        };
+
+        let parsed: serde_json::Value = match serde_json::from_str(&body_str) {
+            Ok(v) => v,
+            Err(_) => return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400, "message": "Invalid JSON", "error": "INVALID_JSON"
+            })),
+        };
+
+        let indices: Vec<usize> = match parsed["indices"].as_array() {
+            Some(arr) => arr.iter()
+                .filter_map(|v| v.as_u64().map(|n| n as usize))
+                .filter(|&i| i < self.app_config.server.len())
+                .collect(),
+            None => return json_response(StatusCode::BAD_REQUEST, &json!({
+                "code": 400, "message": "Missing or invalid 'indices' field", "error": "MISSING_INDICES"
+            })),
+        };
+
+        let mut started_count = 0;
+        for &idx in &indices {
+            toggle_site_pause(idx, false);
+            started_count += 1;
+        }
+
+        json_response(StatusCode::OK, &json!({
+            "code": 0,
+            "message": format!("Started {} sites", started_count),
+            "data": { "started_indices": indices, "count": started_count }
+        }))
     }
 }
 
@@ -553,9 +877,30 @@ pub fn is_manage_path(path: &str) -> bool {
     path.starts_with("/_ohos/")
 }
 
-/// 增加全局请求计数器
+/// 增加全局请求计数器 + 记录时间戳用于实时 QPS
 pub fn inc_requests() {
     GLOBAL_REQUESTS.fetch_add(1, Ordering::Relaxed);
+    let tracker = REQUEST_TIMESTAMPS.get_or_init(|| Mutex::new(VecDeque::with_capacity(5000)));
+    if let Ok(mut ts) = tracker.lock() {
+        ts.push_back(Instant::now());
+        let cutoff = Instant::now() - std::time::Duration::from_secs(5);
+        while ts.front().map_or(false, |t| *t < cutoff) {
+            ts.pop_front();
+        }
+    }
+}
+
+/// 获取最近5秒内的平均请求率 (req/s)
+pub fn get_recent_rps() -> f64 {
+    if let Some(tracker) = REQUEST_TIMESTAMPS.get() {
+        if let Ok(ts) = tracker.lock() {
+            let count = ts.len();
+            if count > 0 {
+                return count as f64 / 5.0;
+            }
+        }
+    }
+    0.0
 }
 
 /// 验证 AppConfig 配置内容的安全性

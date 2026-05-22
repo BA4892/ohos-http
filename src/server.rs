@@ -56,6 +56,7 @@ use crate::manage::ManageHandler;
 /// HTTP 服务器实例（单站点）
 pub struct HttpServer {
     config: ServerConfig,
+    site_index: Option<usize>,
     manage_handler: Option<ManageHandler>,
 }
 
@@ -119,11 +120,19 @@ impl VirtualHostRouter {
 
 impl HttpServer {
     pub fn new(config: ServerConfig) -> Self {
-        HttpServer { config, manage_handler: None }
+        HttpServer { config, site_index: None, manage_handler: None }
+    }
+
+    pub fn new_with_index(config: ServerConfig, site_index: usize) -> Self {
+        HttpServer { config, site_index: Some(site_index), manage_handler: None }
     }
 
     pub fn new_with_manage(config: ServerConfig, manage_handler: ManageHandler) -> Self {
-        HttpServer { config, manage_handler: Some(manage_handler) }
+        HttpServer { config, site_index: None, manage_handler: Some(manage_handler) }
+    }
+
+    pub fn new_with_manage_and_index(config: ServerConfig, manage_handler: ManageHandler, site_index: usize) -> Self {
+        HttpServer { config, site_index: Some(site_index), manage_handler: Some(manage_handler) }
     }
 
     /// 启动服务器（含 TLS、HTTP/2、HTTP/3 支持）
@@ -133,16 +142,31 @@ impl HttpServer {
         let addr: SocketAddr = self.config.bind.parse()
             .map_err(|e| format!("绑定地址格式错误 '{}': {}", self.config.bind, e))?;
 
-        // 创建 Handler（带管理 API）
+        // 创建 Handler（带管理 API + 站点索引）
         let handler = if let Some(ref manage) = self.manage_handler {
-            Arc::new(RequestHandler::new_with_manage(
-                self.config.clone(),
-                manage.clone(),
-            ))
+            if let Some(idx) = self.site_index {
+                Arc::new(RequestHandler::new_with_manage_and_index(
+                    self.config.clone(),
+                    manage.clone(),
+                    idx,
+                ))
+            } else {
+                Arc::new(RequestHandler::new_with_manage(
+                    self.config.clone(),
+                    manage.clone(),
+                ))
+            }
         } else {
-            Arc::new(RequestHandler::new(
-                self.config.clone(),
-            ))
+            if let Some(idx) = self.site_index {
+                Arc::new(RequestHandler::new_with_site_index(
+                    self.config.clone(),
+                    idx,
+                ))
+            } else {
+                Arc::new(RequestHandler::new(
+                    self.config.clone(),
+                ))
+            }
         };
 
         // ─── TLS 配置（如果提供了 cert/key） ───
