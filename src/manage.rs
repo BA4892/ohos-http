@@ -33,6 +33,7 @@ use std::convert::Infallible;
 use std::io::BufRead;
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::io::Read;
 use std::process;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -875,18 +876,55 @@ fn start_main_server() -> Result<String, String> {
         return Err("配置文件不存在，请先添加站点。".to_string());
     }
 
+    // 使用管道捕获 stderr，以便子进程启动失败时返回错误信息
     let child = process::Command::new(&self_exe)
         .arg("-c")
         .arg(config_path.to_string_lossy().to_string())
         .stdout(process::Stdio::null())
-        .stderr(process::Stdio::null())
+        .stderr(process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("启动主服务器失败: {}", e))?;
 
     let pid = child.id();
-    *guard = Some(child);
 
-    Ok(format!("主服务器已启动 (PID: {})", pid))
+    // 等待一小段时间，验证子进程是否还活着
+    let mut child = child;
+    let start = std::time::Instant::now();
+    let mut stderr_output = Vec::new();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // 子进程已退出
+                let _ = child.stderr.take().map(|mut s| s.read_to_end(&mut stderr_output));
+                let err_msg = if !stderr_output.is_empty() {
+                    String::from_utf8_lossy(&stderr_output).trim().to_string()
+                } else {
+                    String::new()
+                };
+                let detail = if err_msg.is_empty() {
+                    format!("子进程立即退出 (exit: {:?})", status.code())
+                } else {
+                    format!("子进程立即退出 (exit: {:?}): {}", status.code(), err_msg)
+                };
+                *guard = None;
+                return Err(detail);
+            }
+            Ok(None) => {
+                // 还在运行
+                if start.elapsed() >= std::time::Duration::from_millis(500) {
+                    // 已经存活超过 500ms，认为启动成功
+                    *guard = Some(child);
+                    return Ok(format!("主服务器已启动 (PID: {})", pid));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(_) => {
+                *guard = None;
+                return Err("等待子进程状态时出错".to_string());
+            }
+        }
+    }
 }
 
 /// 停止主服务器
@@ -1036,7 +1074,7 @@ fn get_system_status() -> SystemStatus {
         Err(_) => Vec::new(),
     };
     let sites_count = sites.len();
-    let running_sites = sites_count; // 所有配置站点默认运行
+    let running_sites = if is_main_server_running() { sites_count } else { 0 };
 
     SystemStatus {
         uptime_seconds: uptime,
