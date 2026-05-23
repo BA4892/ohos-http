@@ -1,1 +1,8 @@
 /target
+*.log
+/logs/
+/.test_tmp/
+/dist/
+/config.toml
+bench-tool/target
+ws-test-server/target
