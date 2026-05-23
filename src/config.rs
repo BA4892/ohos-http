@@ -62,7 +62,7 @@ pub struct ServerConfig {
     pub root: String,
 
     /// 绑定的域名列表（虚拟主机）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub domains: Vec<String>,
 
     /// 上传最大大小（如 "10MB"）
@@ -74,15 +74,15 @@ pub struct ServerConfig {
     pub upload_max_size_bytes: u64,
 
     /// 工作线程数
-    #[serde(default = "default_threads")]
+    #[serde(skip_serializing_if = "is_zero", default = "default_threads")]
     pub threads: usize,
 
     /// 工作进程数（多进程模式，0=auto=CPU核数，1=单进程）
-    #[serde(default = "default_workers")]
+    #[serde(skip_serializing_if = "is_zero", default = "default_workers")]
     pub workers: usize,
 
     /// 是否启用缓存
-    #[serde(default = "default_cache_enabled")]
+    #[serde(skip_serializing_if = "is_false", default = "default_cache_enabled")]
     pub cache_enabled: bool,
 
     /// 缓存TTL（秒），或格式如 "1h", "7d"
@@ -102,11 +102,11 @@ pub struct ServerConfig {
     pub cache_max_size_bytes: u64,
 
     /// 目录列表
-    #[serde(default = "default_directory_listing")]
+    #[serde(skip_serializing_if = "is_false", default = "default_directory_listing")]
     pub directory_listing: bool,
 
     /// 日志文件路径（可选）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub access_log: Option<String>,
 
     /// 日志轮转大小限制（如 "100MB", "1GB", 0=不限制）
@@ -118,23 +118,23 @@ pub struct ServerConfig {
     pub log_rotate_size_bytes: u64,
 
     /// PID文件路径（守护进程模式）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pid_file: Option<String>,
 
     /// URL重写规则（伪静态）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub rewrite: Vec<RewriteRule>,
 
     /// CGI解释器配置
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub cgi: Vec<CgiConfig>,
 
     /// 路径规则（反向代理、静态文件等）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub location: Vec<LocationConfig>,
 
     /// CORS 允许的源（如 "*" 或 "https://example.com"，空=不启用CORS）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_empty_string", default)]
     pub cors_origin: String,
 
     /// CORS 允许的方法（逗号分隔，默认 "GET,POST,PUT,DELETE,PATCH,OPTIONS"）
@@ -146,11 +146,11 @@ pub struct ServerConfig {
     pub cors_headers: String,
 
     /// TLS 证书路径（设置后自动启用 HTTPS）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cert: Option<String>,
 
     /// TLS 私钥路径
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub key: Option<String>,
 
     /// HTTP/3 (QUIC) 端口（0=不启用，如 "4433"）
@@ -158,39 +158,39 @@ pub struct ServerConfig {
     pub http3_port: String,
 
     /// 限流配置（可选）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub rate_limit: Option<RateLimitConfig>,
 
     /// IP 黑名单（完全屏蔽）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub blacklist: Vec<String>,
 
     /// 每个 IP 的自定义限流速率（覆盖全局 requests_per_second）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "hashmap_is_empty", default)]
     pub per_ip_rates: std::collections::HashMap<String, u32>,
 
     /// Session 配置（可选）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session: Option<SessionConfig>,
 
     /// 是否允许通过 IP 直接访问（false 则只允许绑定的域名访问）
-    #[serde(default = "default_true")]
+    #[serde(skip_serializing_if = "is_true", default = "default_true")]
     pub allow_ip_access: bool,
 
     /// 禁止访问的目录列表（如 /runtime/* 禁止该目录下所有文件访问）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub forbidden_dirs: Vec<String>,
 
     /// 禁止访问的文件列表（如 *.toml 禁止所有 toml 后缀文件访问）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub forbidden_files: Vec<String>,
 
     /// 是否允许 DELETE 请求删除文件（默认禁止，false 时返回 405）
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false", default)]
     pub allow_delete: bool,
 
     /// 是否允许上传文件 (PUT/PATCH，默认禁止，false 时返回 405)。POST 始终可用。
-    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false", default)]
     pub allow_upload: bool,
 }
 
@@ -213,6 +213,13 @@ fn default_cors_headers() -> String { "*".to_string() }
 fn default_http3_port() -> String { "0".to_string() }
 
 fn default_true() -> bool { true }
+
+// ═══ skip_serializing_if 辅助函数 ═══
+fn is_false(v: &bool) -> bool { !*v }
+fn is_true(v: &bool) -> bool { *v }
+fn is_zero(v: &usize) -> bool { *v == 0 }
+fn is_empty_string(v: &str) -> bool { v.is_empty() }
+fn hashmap_is_empty(v: &std::collections::HashMap<String, u32>) -> bool { v.is_empty() }
 
 impl ServerConfig {
     pub fn finalize(&mut self) {

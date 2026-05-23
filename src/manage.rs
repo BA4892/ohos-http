@@ -132,11 +132,24 @@ struct SiteInfo {
     workers: usize,
     upload_max_size: String,
     cache_enabled: bool,
+    cache_ttl: String,
+    cache_max_size: String,
     directory_listing: bool,
-    ssl_enabled: bool,
-    status: String, // "running" | "stopped"
-    #[serde(skip_serializing_if = "Option::is_none")]
     access_log: Option<String>,
+    log_rotate_size: String,
+    ssl_enabled: bool,
+    cert: Option<String>,
+    key: Option<String>,
+    http3_port: String,
+    cors_origin: String,
+    cors_methods: String,
+    cors_headers: String,
+    allow_ip_access: bool,
+    allow_delete: bool,
+    allow_upload: bool,
+    forbidden_dirs: Vec<String>,
+    forbidden_files: Vec<String>,
+    status: String,
 }
 
 /// 登录响应数据
@@ -161,9 +174,22 @@ struct SiteCreateRequest {
     workers: Option<usize>,
     upload_max_size: Option<String>,
     cache_enabled: Option<bool>,
+    cache_ttl: Option<String>,
+    cache_max_size: Option<String>,
     directory_listing: Option<bool>,
+    access_log: Option<String>,
+    log_rotate_size: Option<String>,
     ssl_cert: Option<String>,
     ssl_key: Option<String>,
+    http3_port: Option<String>,
+    cors_origin: Option<String>,
+    cors_methods: Option<String>,
+    cors_headers: Option<String>,
+    allow_ip_access: Option<bool>,
+    allow_delete: Option<bool>,
+    allow_upload: Option<bool>,
+    forbidden_dirs: Option<Vec<String>>,
+    forbidden_files: Option<Vec<String>>,
 }
 
 // ============================================================================
@@ -181,6 +207,11 @@ static LAST_CPU_IDLE: AtomicU64 = AtomicU64::new(0);
 /// 管理服务器配置（全局可访问）
 static MANAGE_CONFIG: LazyLock<Mutex<Option<ManageConfigInner>>> =
     LazyLock::new(|| Mutex::new(None));
+
+/// 主服务器子进程（通过管理端启动/停止）
+static MAIN_SERVER_CHILD: LazyLock<Mutex<Option<process::Child>>> = LazyLock::new(|| {
+    Mutex::new(None)
+});
 
 struct ManageConfigInner {
     data_dir: PathBuf,
@@ -270,6 +301,8 @@ async fn run_manage_server(addr: &str) {
     };
 
     let actual_addr = listener.local_addr().unwrap();
+    // 输出友好地址（把 0.0.0.0 转为 127.0.0.1，方便浏览器直接访问）
+    let friendly_addr = actual_addr.to_string().replace("0.0.0.0", "127.0.0.1");
     eprintln!("   ✅ 监听地址: http://{}", actual_addr);
 
     // 输出管理员信息
@@ -282,7 +315,7 @@ async fn run_manage_server(addr: &str) {
         if let Some(creds) = auth::load_credentials(d) {
             eprintln!("\n   🌐 管理界面访问地址:");
             eprintln!();
-            eprintln!("      http://{}", actual_addr);
+            eprintln!("      http://{}", friendly_addr);
             eprintln!();
             eprintln!("   🔑 管理员账号:");
             eprintln!("      用户名: {}", creds.username);
@@ -339,7 +372,7 @@ async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>,
     // 路由匹配
     match (method.as_str(), path.as_str()) {
         // ─── 静态页面 ───
-        ("GET", "/") | ("GET", "/index.html") => {
+        ("GET", "/") | ("GET", "/index.html") | ("GET", "/admin.html") => {
             Ok(html_response(ADMIN_HTML))
         }
 
@@ -581,11 +614,25 @@ async fn handle_site_create(body: &str) -> Result<Response<Full<Bytes>>, Infalli
         }
     };
 
-    // 加载当前配置
+    // 加载当前配置（如果配置文件不存在则创建新的）
     let (config_path, mut app_config) = match load_app_config() {
         Some(c) => c,
         None => {
-            return Ok(json_response(StatusCode::INTERNAL_SERVER_ERROR, &ApiResponse::<()>::err("无法加载配置文件")));
+            // 如果配置文件不存在，尝试创建一个新的 AppConfig
+            let data_dir = {
+                let cfg = MANAGE_CONFIG.lock().unwrap();
+                cfg.as_ref().map(|c| c.data_dir.clone())
+            };
+            let config_path = match data_dir {
+                Some(d) => d.join("config.toml"),
+                None => {
+                    return Ok(json_response(StatusCode::INTERNAL_SERVER_ERROR, &ApiResponse::<()>::err("无法获取数据目录")));
+                }
+            };
+            (config_path.to_string_lossy().to_string(), AppConfig {
+                server: Vec::new(),
+                config_path: String::new(),
+            })
         }
     };
 
@@ -600,33 +647,33 @@ async fn handle_site_create(body: &str) -> Result<Response<Full<Bytes>>, Infalli
         workers: create_req.workers.unwrap_or(0),
         threads: 1,
         cache_enabled: create_req.cache_enabled.unwrap_or(false),
-        cache_ttl: "1h".to_string(),
+        cache_ttl: create_req.cache_ttl.unwrap_or_else(|| "1h".to_string()),
         cache_ttl_seconds: 0,
-        cache_max_size: "100MB".to_string(),
+        cache_max_size: create_req.cache_max_size.unwrap_or_else(|| "100MB".to_string()),
         cache_max_size_bytes: 0,
         directory_listing: create_req.directory_listing.unwrap_or(false),
-        access_log: Some(format!("{}/access.log", crate::init::default_log_dir().display())),
-        log_rotate_size: "0".to_string(),
+        access_log: create_req.access_log,
+        log_rotate_size: create_req.log_rotate_size.unwrap_or_else(|| "0".to_string()),
         log_rotate_size_bytes: 0,
         pid_file: None,
         rewrite: Vec::new(),
         cgi: Vec::new(),
         location: Vec::new(),
-        cors_origin: String::new(),
-        cors_methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD".to_string(),
-        cors_headers: "*".to_string(),
+        cors_origin: create_req.cors_origin.unwrap_or_default(),
+        cors_methods: create_req.cors_methods.unwrap_or_else(|| "GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD".to_string()),
+        cors_headers: create_req.cors_headers.unwrap_or_else(|| "*".to_string()),
         cert: create_req.ssl_cert,
         key: create_req.ssl_key,
-        http3_port: "0".to_string(),
+        http3_port: create_req.http3_port.unwrap_or_else(|| "0".to_string()),
         rate_limit: None,
         blacklist: Vec::new(),
         per_ip_rates: std::collections::HashMap::new(),
         session: None,
-        allow_ip_access: true,
-        forbidden_dirs: Vec::new(),
-        forbidden_files: Vec::new(),
-        allow_delete: false,
-        allow_upload: false,
+        allow_ip_access: create_req.allow_ip_access.unwrap_or(true),
+        forbidden_dirs: create_req.forbidden_dirs.unwrap_or_default(),
+        forbidden_files: create_req.forbidden_files.unwrap_or_default(),
+        allow_delete: create_req.allow_delete.unwrap_or(false),
+        allow_upload: create_req.allow_upload.unwrap_or(false),
     };
     srv.finalize();
 
@@ -637,7 +684,21 @@ async fn handle_site_create(body: &str) -> Result<Response<Full<Bytes>>, Infalli
         return Ok(json_response(StatusCode::INTERNAL_SERVER_ERROR, &ApiResponse::<()>::err(&e)));
     }
 
-    Ok(json_response(StatusCode::CREATED, &ApiResponse::<()>::ok_msg("站点创建成功")))
+    // 自动启动或热重载主服务器
+    let extra_msg = if is_main_server_running() {
+        match reload_main_server() {
+            Ok(m) => format!("。{}", m),
+            Err(_) => "。配置已保存。".to_string(),
+        }
+    } else {
+        match start_main_server() {
+            Ok(m) => format!("。{}", m),
+            Err(_) => "。请点击「启动」按钮来启动服务器。".to_string(),
+        }
+    };
+
+    let msg = format!("站点创建成功{}", extra_msg);
+    Ok(json_response(StatusCode::CREATED, &ApiResponse::<()>::ok_msg(&msg)))
 }
 
 /// 处理更新站点
@@ -678,16 +739,59 @@ async fn handle_site_update(id: &str, body: &str) -> Result<Response<Full<Bytes>
         srv.workers = workers;
     }
     if let Some(size) = update_req.upload_max_size {
-        srv.upload_max_size = size;
+        srv.upload_max_size = if size.is_empty() { "10MB".to_string() } else { size };
     }
     if let Some(cache) = update_req.cache_enabled {
         srv.cache_enabled = cache;
     }
+    if let Some(ttl) = update_req.cache_ttl {
+        srv.cache_ttl = if ttl.is_empty() { "1h".to_string() } else { ttl };
+    }
+    if let Some(max_size) = update_req.cache_max_size {
+        srv.cache_max_size = if max_size.is_empty() { "100MB".to_string() } else { max_size };
+    }
     if let Some(listing) = update_req.directory_listing {
         srv.directory_listing = listing;
     }
-    srv.cert = update_req.ssl_cert;
-    srv.key = update_req.ssl_key;
+    if let Some(log) = update_req.access_log {
+        srv.access_log = if log.is_empty() { None } else { Some(log) };
+    }
+    if let Some(rotate) = update_req.log_rotate_size {
+        srv.log_rotate_size = if rotate.is_empty() { "0".to_string() } else { rotate };
+    }
+    if let Some(h3) = update_req.http3_port {
+        srv.http3_port = if h3.is_empty() { "0".to_string() } else { h3 };
+    }
+    if let Some(origin) = update_req.cors_origin {
+        srv.cors_origin = origin;
+    }
+    if let Some(methods) = update_req.cors_methods {
+        srv.cors_methods = if methods.is_empty() { "GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD".to_string() } else { methods };
+    }
+    if let Some(headers) = update_req.cors_headers {
+        srv.cors_headers = if headers.is_empty() { "*".to_string() } else { headers };
+    }
+    if let Some(cert) = update_req.ssl_cert {
+        srv.cert = if cert.is_empty() { None } else { Some(cert) };
+    }
+    if let Some(key) = update_req.ssl_key {
+        srv.key = if key.is_empty() { None } else { Some(key) };
+    }
+    if let Some(ip_access) = update_req.allow_ip_access {
+        srv.allow_ip_access = ip_access;
+    }
+    if let Some(delete) = update_req.allow_delete {
+        srv.allow_delete = delete;
+    }
+    if let Some(upload) = update_req.allow_upload {
+        srv.allow_upload = upload;
+    }
+    if let Some(dirs) = update_req.forbidden_dirs {
+        srv.forbidden_dirs = dirs;
+    }
+    if let Some(files) = update_req.forbidden_files {
+        srv.forbidden_files = files;
+    }
     srv.finalize();
 
     if let Err(e) = save_app_config(&config_path, &app_config) {
@@ -726,18 +830,132 @@ async fn handle_site_delete(id: &str) -> Result<Response<Full<Bytes>>, Infallibl
     Ok(json_response(StatusCode::OK, &ApiResponse::<()>::ok_msg("站点已删除")))
 }
 
-/// 处理站点启动/停止
-async fn handle_site_control(id: usize, action: &str) -> Result<Response<Full<Bytes>>, Infallible> {
-    // 目前：启动/停止操作通过修改配置实现
-    // 实际控制需要通过信号或进程管理，这是高级功能
-    // 这里我们先返回提示，实际站点状态通过配置的 enable/disable 控制
-    let msg = match action {
-        "start" => "站点已标记为启用状态。请运行 ohos-server 热重启 (SIGHUP) 生效。",
-        "stop" => "站点已标记为停止状态。请运行 ohos-server 热重启 (SIGHUP) 生效。",
-        _ => "未知操作",
-    };
+// ============================================================================
+//  主服务器进程管理（子进程方式）
+// ============================================================================
 
-    Ok(json_response(StatusCode::OK, &ApiResponse::<()>::ok_msg(msg)))
+/// 检查主服务器是否在运行
+fn is_main_server_running() -> bool {
+    let mut guard = MAIN_SERVER_CHILD.lock().unwrap();
+    if let Some(ref mut child) = *guard {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                *guard = None; // 已退出，清理
+                false
+            }
+            Ok(None) => true, // 仍在运行
+            Err(_) => {
+                *guard = None;
+                false
+            }
+        }
+    } else {
+        false
+    }
+}
+
+/// 启动主服务器（作为子进程）
+fn start_main_server() -> Result<String, String> {
+    let mut guard = MAIN_SERVER_CHILD.lock().unwrap();
+
+    // 检查是否已在运行
+    if let Some(ref mut child) = *guard {
+        match child.try_wait() {
+            Ok(Some(_)) => { *guard = None; } // 已退出，清理
+            Ok(None) => return Ok(format!("主服务器已在运行 (PID: {})", child.id())),
+            Err(_) => { *guard = None; }
+        }
+    }
+
+    let self_exe = std::env::current_exe().map_err(|e| format!("获取自身路径失败: {}", e))?;
+    let data_dir = crate::init::data_dir();
+    let config_path = data_dir.join("config.toml");
+
+    if !config_path.exists() {
+        return Err("配置文件不存在，请先添加站点。".to_string());
+    }
+
+    let child = process::Command::new(&self_exe)
+        .arg("-c")
+        .arg(config_path.to_string_lossy().to_string())
+        .stdout(process::Stdio::null())
+        .stderr(process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("启动主服务器失败: {}", e))?;
+
+    let pid = child.id();
+    *guard = Some(child);
+
+    Ok(format!("主服务器已启动 (PID: {})", pid))
+}
+
+/// 停止主服务器
+fn stop_main_server() -> Result<String, String> {
+    let mut guard = MAIN_SERVER_CHILD.lock().unwrap();
+
+    match guard.take() {
+        Some(mut child) => {
+            let pid = child.id() as i32;
+            // SIGTERM 优雅退出
+            let _ = unsafe { libc::kill(pid, libc::SIGTERM) };
+            // 等待退出（最多 3 秒）
+            for _ in 0..30 {
+                match child.try_wait() {
+                    Ok(Some(_)) => return Ok(format!("主服务器已停止 (PID: {})", pid)),
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                    Err(_) => break,
+                }
+            }
+            // 超时后强制杀死
+            let _ = unsafe { libc::kill(pid, libc::SIGKILL) };
+            let _ = child.wait();
+            Ok(format!("主服务器已强制停止 (PID: {})", pid))
+        }
+        None => Err("主服务器未在运行".to_string()),
+    }
+}
+
+/// 热重启主服务器（SIGHUP）
+fn reload_main_server() -> Result<String, String> {
+    let guard = MAIN_SERVER_CHILD.lock().unwrap();
+
+    match *guard {
+        Some(ref child) => {
+            let pid = child.id() as i32;
+            let ret = unsafe { libc::kill(pid, libc::SIGHUP) };
+            if ret == 0 {
+                Ok(format!("已发送热重启信号 (PID: {})", pid))
+            } else {
+                Err("发送 SIGHUP 信号失败".to_string())
+            }
+        }
+        None => Err("主服务器未在运行，请先启动。".to_string()),
+    }
+}
+
+/// 处理站点启动/停止
+async fn handle_site_control(_id: usize, action: &str) -> Result<Response<Full<Bytes>>, Infallible> {
+    match action {
+        "start" => {
+            match start_main_server() {
+                Ok(msg) => Ok(json_response(StatusCode::OK, &ApiResponse::<()>::ok_msg(&msg))),
+                Err(e) => Ok(json_response(StatusCode::INTERNAL_SERVER_ERROR, &ApiResponse::<()>::err(&e))),
+            }
+        }
+        "stop" => {
+            match stop_main_server() {
+                Ok(msg) => Ok(json_response(StatusCode::OK, &ApiResponse::<()>::ok_msg(&msg))),
+                Err(e) => Ok(json_response(StatusCode::INTERNAL_SERVER_ERROR, &ApiResponse::<()>::err(&e))),
+            }
+        }
+        "reload" => {
+            match reload_main_server() {
+                Ok(msg) => Ok(json_response(StatusCode::OK, &ApiResponse::<()>::ok_msg(&msg))),
+                Err(e) => Ok(json_response(StatusCode::INTERNAL_SERVER_ERROR, &ApiResponse::<()>::err(&e))),
+            }
+        }
+        _ => Ok(json_response(StatusCode::BAD_REQUEST, &ApiResponse::<()>::err("未知操作"))),
+    }
 }
 
 /// 处理站点日志查询
@@ -762,7 +980,8 @@ async fn handle_site_logs(id: usize) -> Result<Response<Full<Bytes>>, Infallible
         "该站点未配置日志文件。".to_string()
     };
 
-    Ok(json_response(StatusCode::OK, &log_content))
+    let resp = ApiResponse::<String>::ok_msg(&log_content);
+    Ok(json_response(StatusCode::OK, &resp))
 }
 
 /// 处理服务器日志查询
@@ -776,7 +995,8 @@ async fn handle_server_logs() -> Result<Response<Full<Bytes>>, Infallible> {
         "暂无服务器日志。".to_string()
     };
 
-    Ok(json_response(StatusCode::OK, &content))
+    let resp = ApiResponse::<String>::ok_msg(&content);
+    Ok(json_response(StatusCode::OK, &resp))
 }
 
 // ============================================================================
@@ -905,6 +1125,8 @@ fn load_sites() -> Result<Vec<SiteInfo>, String> {
         None => return Err("无法加载配置".to_string()),
     };
 
+    let server_running = is_main_server_running();
+
     let sites: Vec<SiteInfo> = app_config.server.iter().enumerate().map(|(i, s)| {
         SiteInfo {
             id: i + 1,
@@ -914,10 +1136,24 @@ fn load_sites() -> Result<Vec<SiteInfo>, String> {
             workers: s.workers,
             upload_max_size: s.upload_max_size.clone(),
             cache_enabled: s.cache_enabled,
+            cache_ttl: s.cache_ttl.clone(),
+            cache_max_size: s.cache_max_size.clone(),
             directory_listing: s.directory_listing,
-            ssl_enabled: s.cert.is_some() && s.key.is_some(),
-            status: "running".to_string(),
             access_log: s.access_log.clone(),
+            log_rotate_size: s.log_rotate_size.clone(),
+            ssl_enabled: s.cert.is_some() && s.key.is_some(),
+            cert: s.cert.clone(),
+            key: s.key.clone(),
+            http3_port: s.http3_port.clone(),
+            cors_origin: s.cors_origin.clone(),
+            cors_methods: s.cors_methods.clone(),
+            cors_headers: s.cors_headers.clone(),
+            allow_ip_access: s.allow_ip_access,
+            allow_delete: s.allow_delete,
+            allow_upload: s.allow_upload,
+            forbidden_dirs: s.forbidden_dirs.clone(),
+            forbidden_files: s.forbidden_files.clone(),
+            status: if server_running { "running" } else { "stopped" }.to_string(),
         }
     }).collect();
 

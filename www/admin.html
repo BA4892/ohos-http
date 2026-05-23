@@ -211,6 +211,12 @@ a:hover { text-decoration: underline; }
 .progress-fill.yellow { background: var(--color-warning); }
 .progress-fill.red { background: var(--color-danger); }
 
+.notice-banner {
+  background: #fff3cd; border: 1px solid #ffc107; border-radius: var(--radius);
+  padding: 12px 16px; margin-bottom: 16px; font-size: 13px; line-height: 1.5;
+}
+.notice-banner code { background: #fff; padding: 1px 4px; border-radius: 3px; }
+
 /* ═══════════════════════════════════════════════
    表格
    ═══════════════════════════════════════════════ */
@@ -428,6 +434,10 @@ tr:hover td { background: #f8f9fa; }
         </div>
         <button class="btn btn-primary btn-sm" onclick="openSiteModal()">➕ 新增站点</button>
       </div>
+      <div class="notice-banner">
+        <strong>📌 提示：</strong>本站点管理仅管理初始化数据目录（<code>~/.ohos/server/config.toml</code>）中的站点配置。
+        使用 <code>ohos-server start 0.0.0.0:8080 /path/to/www</code> 命令或其他路径配置文件启动的站点不在此管理范围内。
+      </div>
       <div class="card">
         <div class="card-title">站点列表 <span class="badge" id="siteCount">0</span></div>
         <div class="table-wrap">
@@ -439,11 +449,12 @@ tr:hover td { background: #f8f9fa; }
                 <th>网站根目录</th>
                 <th>域名</th>
                 <th>状态</th>
+                <th>日志</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody id="siteTableBody">
-              <tr><td colspan="6" style="text-align:center;color:var(--color-text-light);padding:40px;">加载中...</td></tr>
+              <tr><td colspan="7" style="text-align:center;color:var(--color-text-light);padding:40px;">加载中...</td></tr>
             </tbody>
           </table>
         </div>
@@ -519,6 +530,66 @@ tr:hover td { background: #f8f9fa; }
           <div class="form-group">
             <label>SSL 密钥路径</label>
             <input type="text" id="siteKey" placeholder="/path/to/key.pem">
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="card-title" style="margin-bottom:8px;cursor:pointer;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">⚙️ 高级配置（点击展开/折叠）</div>
+          <div id="advancedConfig" style="display:none;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label>缓存 TTL</label>
+                <input type="text" id="siteCacheTtl" value="1h" placeholder="如: 1h, 3600">
+              </div>
+              <div class="form-group">
+                <label>缓存最大大小</label>
+                <input type="text" id="siteCacheMaxSize" value="100MB" placeholder="如: 100MB, 1GB">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>访问日志路径（可选）</label>
+              <input type="text" id="siteAccessLog" placeholder="/var/log/ohos/access.log">
+            </div>
+            <div class="form-group">
+              <label>日志轮转大小</label>
+              <input type="text" id="siteLogRotateSize" value="0" placeholder="0=不限制, 如 100MB">
+            </div>
+            <div class="form-group">
+              <label>HTTP/3 (QUIC) 端口</label>
+              <input type="text" id="siteHttp3Port" value="0" placeholder="0=不启用, 如 4433">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+              <div class="form-group">
+                <label>CORS 允许源</label>
+                <input type="text" id="siteCorsOrigin" placeholder="如: * 或 https://example.com">
+              </div>
+              <div class="form-group">
+                <label>CORS 允许方法</label>
+                <input type="text" id="siteCorsMethods" value="GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD">
+              </div>
+            </div>
+            <div class="form-group">
+              <label>CORS 允许请求头</label>
+              <input type="text" id="siteCorsHeaders" value="*">
+            </div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
+                <input type="checkbox" id="siteAllowIpAccess" checked> 允许 IP 直接访问
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
+                <input type="checkbox" id="siteAllowDelete"> 允许 DELETE
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
+                <input type="checkbox" id="siteAllowUpload"> 允许上传
+              </label>
+            </div>
+            <div class="form-group">
+              <label>禁止访问目录（逗号分隔）</label>
+              <input type="text" id="siteForbiddenDirs" placeholder="如: /runtime/*, /data/*">
+            </div>
+            <div class="form-group">
+              <label>禁止访问文件（逗号分隔）</label>
+              <input type="text" id="siteForbiddenFiles" placeholder="如: *.toml, *.env">
+            </div>
           </div>
         </div>
         <div class="modal-footer" style="padding:16px 0 0;border:none;">
@@ -691,7 +762,7 @@ function renderSites() {
   document.getElementById('siteCount').textContent = STATE.sites.length;
 
   if (STATE.sites.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--color-text-light);padding:40px;">暂无站点配置</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--color-text-light);padding:40px;">暂无站点配置</td></tr>';
     return;
   }
 
@@ -702,6 +773,7 @@ function renderSites() {
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(site.root)}">${escapeHtml(site.root)}</td>
       <td>${site.domains && site.domains.length ? escapeHtml(site.domains.join(', ')) : '<span style="color:var(--color-text-light)">—</span>'}</td>
       <td><span class="status-badge ${site.status}">${site.status === 'running' ? '运行中' : '已停止'}</span></td>
+      <td><button class="btn btn-sm btn-outline" onclick="viewSiteLogs(${site.id})">📋</button></td>
       <td>
         <div class="action-btns">
           <button class="btn btn-success btn-sm" onclick="startSite(${site.id})">▶ 启动</button>
@@ -755,6 +827,19 @@ function editSite(id) {
   document.getElementById('siteListing').checked = site.directory_listing || false;
   document.getElementById('siteCert').value = '';
   document.getElementById('siteKey').value = '';
+  document.getElementById('siteCacheTtl').value = site.cache_ttl || '1h';
+  document.getElementById('siteCacheMaxSize').value = site.cache_max_size || '100MB';
+  document.getElementById('siteAccessLog').value = site.access_log || '';
+  document.getElementById('siteLogRotateSize').value = site.log_rotate_size || '0';
+  document.getElementById('siteHttp3Port').value = site.http3_port || '0';
+  document.getElementById('siteCorsOrigin').value = site.cors_origin || '';
+  document.getElementById('siteCorsMethods').value = site.cors_methods || 'GET,POST,PUT,DELETE,PATCH,OPTIONS,HEAD';
+  document.getElementById('siteCorsHeaders').value = site.cors_headers || '*';
+  document.getElementById('siteAllowIpAccess').checked = site.allow_ip_access !== false;
+  document.getElementById('siteAllowDelete').checked = site.allow_delete || false;
+  document.getElementById('siteAllowUpload').checked = site.allow_upload || false;
+  document.getElementById('siteForbiddenDirs').value = (site.forbidden_dirs || []).join(', ');
+  document.getElementById('siteForbiddenFiles').value = (site.forbidden_files || []).join(', ');
   document.getElementById('siteModal').classList.add('active');
 }
 
