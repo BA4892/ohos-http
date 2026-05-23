@@ -24,6 +24,7 @@
 mod banner;
 mod config;
 mod handler;
+mod auth;
 mod init;
 mod load_balancer;
 mod logger;
@@ -116,6 +117,19 @@ fn main() {
     if args.len() > 1 && args[1] == "init" {
         let dir = args.get(2).map(|s| s.to_string());
         init::run_init(dir);
+        return;
+    }
+
+    // ─── 检查是否运行 reset-admin 子命令 ───
+    if args.len() > 1 && args[1] == "reset-admin" {
+        let data_dir = resolve_admin_data_dir(&args);
+        if !init::data_dir_exists(&data_dir) {
+            eprintln!("❌ ohos-server 尚未初始化，请先运行 `ohos-server init`。");
+            return;
+        }
+        // 检查是否使用 --force 标志
+        let force = args.iter().any(|a| a == "--force" || a == "-f");
+        auth::reset_password(&data_dir, force);
         return;
     }
 
@@ -649,4 +663,39 @@ fn daemonize(pidfile: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// 解析 reset-admin 子命令的数据目录
+///
+/// 支持以下用法：
+/// - `ohos-server reset-admin` — 使用默认数据目录
+/// - `ohos-server reset-admin /path/to/data` — 指定数据目录
+/// - `ohos-server reset-admin -c /path/to/config.toml` — 通过配置文件路径推断
+/// - `ohos-server reset-admin --force /path/to/data` — 强制模式
+fn resolve_admin_data_dir(args: &[String]) -> std::path::PathBuf {
+    // 扫描参数，找到第一个非标志、非选项值的参数作为目录路径
+    let mut skip_next = false;
+    for (i, arg) in args.iter().enumerate() {
+        if i < 2 {
+            continue; // 跳过程序名和子命令
+        }
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        match arg.as_str() {
+            "-c" => {
+                skip_next = true;
+                if let Some(config_path) = args.get(i + 1) {
+                    let path = std::path::PathBuf::from(config_path);
+                    if let Some(parent) = path.parent() {
+                        return parent.to_path_buf();
+                    }
+                }
+            }
+            "--force" | "-f" => continue,
+            _ => return std::path::PathBuf::from(arg),
+        }
+    }
+    init::data_dir()
 }

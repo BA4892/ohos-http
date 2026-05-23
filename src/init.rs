@@ -25,6 +25,8 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process;
 
+use crate::auth;
+
 /// ohos-server 数据目录名称（放在用户家目录下）
 const OHOS_DIR_NAME: &str = ".ohos";
 const SERVER_DIR_NAME: &str = "server";
@@ -33,6 +35,11 @@ const SERVER_DIR_NAME: &str = "server";
 pub fn is_initialized() -> bool {
     let data_dir = data_dir();
     // 检查 .initialized 标记文件存在
+    data_dir.join(".initialized").exists()
+}
+
+/// 检查指定目录是否已初始化
+pub fn data_dir_exists(data_dir: &std::path::Path) -> bool {
     data_dir.join(".initialized").exists()
 }
 
@@ -206,6 +213,19 @@ pub fn run_init(dir: Option<String>) {
 
     eprintln!("启动服务器:");
     eprintln!("  ohos-server -c {}\n", config_path.display());
+
+    // ─── WEB 管理端配置 ───
+    eprint!("\n是否开启 WEB 管理端？(y/N): ");
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok();
+    let input = input.trim().to_lowercase();
+    if input == "y" || input == "yes" {
+        auth::setup_admin(&data_dir);
+    } else {
+        eprintln!("已跳过 WEB 管理端配置。");
+        eprintln!("提示: 需要时可运行 `ohos-server init` 重新配置。");
+    }
 }
 
 /// 生成默认配置文件内容（以数据目录为基础）
