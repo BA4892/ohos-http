@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ohos-server · 管理控制台</title>
+<style>
+/* ═══════════════════════════════════════════════
+   全局重置与基础样式
+   ═══════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --color-bg: #f0f2f5;
+  --color-sidebar: #1a1d29;
+  --color-sidebar-hover: #2a2d3a;
+  --color-sidebar-active: #3a3d4a;
+  --color-primary: #4361ee;
+  --color-primary-hover: #3651d4;
+  --color-success: #2ec4b6;
+  --color-warning: #ff9f1c;
+  --color-danger: #e71d36;
+  --color-text: #2d3436;
+  --color-text-light: #636e72;
+  --color-text-sidebar: #b2bec3;
+  --color-card: #ffffff;
+  --color-border: #dfe6e9;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --radius: 8px;
+  --sidebar-width: 240px;
+  --header-height: 56px;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans SC', sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+a { color: var(--color-primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ═══════════════════════════════════════════════
+   登录页面
+   ═══════════════════════════════════════════════ */
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+}
+.login-card {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  padding: 40px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+.login-card h1 { font-size: 24px; margin-bottom: 4px; }
+.login-card .subtitle { color: var(--color-text-light); font-size: 14px; margin-bottom: 24px; }
+.login-card .logo { font-size: 48px; margin-bottom: 12px; }
+.form-group { margin-bottom: 16px; text-align: left; }
+.form-group label { display: block; font-size: 13px; color: var(--color-text-light); margin-bottom: 4px; }
+.form-group input {
+  width: 100%; padding: 10px 14px; border: 1px solid var(--color-border);
+  border-radius: var(--radius); font-size: 14px; outline: none; transition: border-color 0.2s;
+}
+.form-group input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(67,97,238,0.1); }
+.btn {
+  display: inline-block; padding: 10px 24px; border: none; border-radius: var(--radius);
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.btn-primary { background: var(--color-primary); color: #fff; width: 100%; }
+.btn-primary:hover { background: var(--color-primary-hover); }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-sm { padding: 6px 14px; font-size: 12px; }
+.btn-success { background: var(--color-success); color: #fff; }
+.btn-success:hover { background: #25a99d; }
+.btn-warning { background: var(--color-warning); color: #fff; }
+.btn-warning:hover { background: #e08c00; }
+.btn-danger { background: var(--color-danger); color: #fff; }
+.btn-danger:hover { background: #c4182e; }
+.btn-outline { background: transparent; border: 1px solid var(--color-border); color: var(--color-text); }
+.btn-outline:hover { background: #f8f9fa; }
+
+/* ═══════════════════════════════════════════════
+   布局
+   ═══════════════════════════════════════════════ */
+.app-layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--color-sidebar);
+  color: var(--color-text-sidebar);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0;
+  height: 100vh;
+  z-index: 100;
+}
+.sidebar-brand {
+  padding: 20px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sidebar-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  color: var(--color-text-sidebar);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 14px;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+.nav-item:hover { background: var(--color-sidebar-hover); color: #fff; }
+.nav-item.active { background: var(--color-sidebar-active); color: #fff; border-left: 3px solid var(--color-primary); }
+.nav-item .icon { font-size: 18px; width: 24px; text-align: center; }
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  font-size: 12px;
+}
+
+.main-content {
+  margin-left: var(--sidebar-width);
+  flex: 1;
+  padding: 24px;
+  min-height: 100vh;
+}
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.page-header h2 { font-size: 22px; font-weight: 700; }
+.page-header .subtitle { color: var(--color-text-light); font-size: 14px; }
+
+/* ═══════════════════════════════════════════════
+   卡片与网格
+   ═══════════════════════════════════════════════ */
+.card {
+  background: var(--color-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+.card-title .badge {
+  display: inline-block;
+  background: var(--color-bg);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-light);
+  margin-left: 8px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+.stat-card {
+  background: var(--color-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  text-align: center;
+}
+.stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--color-primary); }
+.stat-card .stat-label { font-size: 13px; color: var(--color-text-light); margin-top: 4px; }
+.stat-card .stat-icon { font-size: 32px; margin-bottom: 8px; }
+
+.progress-bar {
+  height: 8px;
+  background: var(--color-bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s;
+}
+.progress-fill.green { background: var(--color-success); }
+.progress-fill.yellow { background: var(--color-warning); }
+.progress-fill.red { background: var(--color-danger); }
+
+/* ═══════════════════════════════════════════════
+   表格
+   ═══════════════════════════════════════════════ */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--color-border); }
+th { font-weight: 600; color: var(--color-text-light); font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+tr:hover td { background: #f8f9fa; }
+
+.status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.status-badge.running { background: #d4edda; color: #155724; }
+.status-badge.stopped { background: #f8d7da; color: #721c24; }
+
+.action-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ═══════════════════════════════════════════════
+   模态框
+   ═══════════════════════════════════════════════ */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  width: 100%;
+  max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: modalIn 0.2s ease;
+}
+@keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 24px 0; font-size: 18px; font-weight: 700;
+}
+.modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--color-text-light); padding: 0 4px; }
+.modal-body { padding: 20px 24px; }
+.modal-footer {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 16px 24px; border-top: 1px solid var(--color-border);
+}
+
+/* ═══════════════════════════════════════════════
+   日志查看器
+   ═══════════════════════════════════════════════ */
+.log-viewer {
+  background: #1a1d29;
+  color: #a8e6cf;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.7;
+}
+
+/* ═══════════════════════════════════════════════
+   提示消息
+   ═══════════════════════════════════════════════ */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 2000;
+  animation: toastIn 0.3s ease;
+  box-shadow: var(--shadow-md);
+  max-width: 400px;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+.toast.success { background: var(--color-success); }
+.toast.error { background: var(--color-danger); }
+.toast.info { background: var(--color-primary); }
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-light);
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state p { font-size: 14px; }
+
+/* ═══════════════════════════════════════════════
+   响应式
+   ═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .sidebar { width: 60px; }
+  .sidebar-brand span { display: none; }
+  .nav-item span { display: none; }
+  .sidebar-footer { display: none; }
+  .main-content { margin-left: 60px; padding: 16px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .page-header { flex-direction: column; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════
+     登录页面
+     ═══════════════════════════════════════════════ -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="logo">⚡</div>
+    <h1>ohos-server</h1>
+    <p class="subtitle">请输入管理员账号密码登录</p>
+    <form id="loginForm" onsubmit="return doLogin(event)">
+      <div class="form-group">
+        <label for="username">用户名</label>
+        <input type="text" id="username" placeholder="输入管理员用户名" required autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label for="password">密码</label>
+        <input type="password" id="password" placeholder="输入密码" required autocomplete="current-password">
+      </div>
+      <div id="loginError" style="color:var(--color-danger);font-size:13px;margin-bottom:12px;display:none;"></div>
+      <button type="submit" class="btn btn-primary" id="loginBtn">登 录</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     主应用
+     ═══════════════════════════════════════════════ -->
+<div id="app" class="app-layout" style="display:none;">
+
+  <!-- 侧边栏 -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">⚡<span>ohos-server</span></div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
+        <span class="icon">📊</span><span>仪表盘</span>
+      </button>
+      <button class="nav-item" data-page="sites" onclick="switchPage('sites')">
+        <span class="icon">🌐</span><span>站点管理</span>
+      </button>
+      <button class="nav-item" data-page="logs" onclick="switchPage('logs')">
+        <span class="icon">📋</span><span>日志</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="nav-item" onclick="doLogout()" style="font-size:13px;">
+        <span class="icon">🚪</span><span>退出登录</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main-content">
+
+    <!-- ===== 仪表盘 ===== -->
+    <div id="page-dashboard" class="page-content">
+      <div class="page-header">
+        <div>
+          <h2>📊 仪表盘</h2>
+          <p class="subtitle">服务器运行状态概览</p>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="refreshStatus()">🔄 刷新</button>
+      </div>
+      <div class="stat-grid" id="statGrid">
+        <div class="stat-card"><div class="stat-icon">⏱️</div><div class="stat-value" id="stat-uptime">--</div><div class="stat-label">运行时间</div></div>
+        <div class="stat-card"><div class="stat-icon">🧠</div><div class="stat-value" id="stat-memory">--</div><div class="stat-label">内存</div></div>
+        <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-value" id="stat-cpu">--</div><div class="stat-label">CPU</div></div>
+        <div class="stat-card"><div class="stat-icon">🌐</div><div class="stat-value" id="stat-sites">--</div><div class="stat-label">站点</div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">💾 内存使用</div>
+        <div id="memInfo" style="font-size:13px;color:var(--color-text-light);margin-bottom:4px;"></div>
+        <div class="progress-bar"><div class="progress-fill green" id="memBar" style="width:0%"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">⚡ CPU 使用率</div>
+        <div id="cpuInfo" style="font-size:13px;color:var(--color-text-light);margin-bottom:4px;"></div>
+        <div class="progress-bar"><div class="progress-fill yellow" id="cpuBar" style="width:0%"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">📋 服务器信息</div>
+        <table>
+          <tr><td style="width:120px;color:var(--color-text-light);">主机名</td><td id="info-hostname">--</td></tr>
+          <tr><td style="color:var(--color-text-light);">操作系统</td><td id="info-os">--</td></tr>
+          <tr><td style="color:var(--color-text-light);">CPU 核心</td><td id="info-cores">--</td></tr>
+          <tr><td style="color:var(--color-text-light);">服务器版本</td><td id="info-version">--</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- ===== 站点管理 ===== -->
+    <div id="page-sites" class="page-content" style="display:none;">
+      <div class="page-header">
+        <div>
+          <h2>🌐 站点管理</h2>
+          <p class="subtitle">管理虚拟主机配置</p>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openSiteModal()">➕ 新增站点</button>
+      </div>
+      <div class="card">
+        <div class="card-title">站点列表 <span class="badge" id="siteCount">0</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>绑定地址</th>
+                <th>网站根目录</th>
+                <th>域名</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="siteTableBody">
+              <tr><td colspan="6" style="text-align:center;color:var(--color-text-light);padding:40px;">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 日志 ===== -->
+    <div id="page-logs" class="page-content" style="display:none;">
+      <div class="page-header">
+        <div>
+          <h2>📋 日志</h2>
+          <p class="subtitle">查看服务器访问日志（最近 200 行）</p>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="refreshLogs()">🔄 刷新</button>
+      </div>
+      <div class="card">
+        <div class="card-title">📄 访问日志</div>
+        <div class="log-viewer" id="logViewer">加载中...</div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     模态框：新增/编辑站点
+     ═══════════════════════════════════════════════ -->
+<div class="modal-overlay" id="siteModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="siteModalTitle">新增站点</span>
+      <button class="modal-close" onclick="closeSiteModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="siteForm" onsubmit="return saveSite(event)">
+        <input type="hidden" id="siteId" value="">
+        <div class="form-group">
+          <label>绑定地址 <span style="color:var(--color-danger)">*</span></label>
+          <input type="text" id="siteBind" placeholder="例: 0.0.0.0:8080" required>
+        </div>
+        <div class="form-group">
+          <label>网站根目录 <span style="color:var(--color-danger)">*</span></label>
+          <input type="text" id="siteRoot" placeholder="例: /var/www/html" required>
+        </div>
+        <div class="form-group">
+          <label>域名（逗号分隔，可选）</label>
+          <input type="text" id="siteDomains" placeholder="例: example.com, www.example.com">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label>Worker 进程数</label>
+            <input type="number" id="siteWorkers" value="0" min="0">
+          </div>
+          <div class="form-group">
+            <label>上传大小限制</label>
+            <input type="text" id="siteUploadSize" value="10MB">
+          </div>
+        </div>
+        <div style="display:flex;gap:20px;flex-wrap:wrap;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
+            <input type="checkbox" id="siteCache"> 启用缓存
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:14px;">
+            <input type="checkbox" id="siteListing"> 目录列表
+          </label>
+        </div>
+        <div style="margin-top:16px;">
+          <div class="card-title" style="margin-bottom:8px;">🔒 SSL/TLS（可选）</div>
+          <div class="form-group">
+            <label>SSL 证书路径</label>
+            <input type="text" id="siteCert" placeholder="/path/to/cert.pem">
+          </div>
+          <div class="form-group">
+            <label>SSL 密钥路径</label>
+            <input type="text" id="siteKey" placeholder="/path/to/key.pem">
+          </div>
+        </div>
+        <div class="modal-footer" style="padding:16px 0 0;border:none;">
+          <button type="button" class="btn btn-outline" onclick="closeSiteModal()">取消</button>
+          <button type="submit" class="btn btn-primary" id="saveSiteBtn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     JavaScript
+     ═══════════════════════════════════════════════ -->
+<script>
+/* ═══════════════════════════════════════════════
+   状态管理
+   ═══════════════════════════════════════════════ */
+const STATE = {
+  token: null,
+  sites: [],
+  statusInterval: null,
+  refreshInterval: null
+};
+
+/* ═══════════════════════════════════════════════
+   API 工具
+   ═══════════════════════════════════════════════ */
+async function api(method, path, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  const opts = { method, headers, credentials: 'include' };
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(path, opts);
+  const data = await resp.json();
+  if (!resp.ok && !data.success) {
+    throw new Error(data.message || '请求失败');
+  }
+  return data;
+}
+
+function showToast(msg, type) {
+  const existing = document.querySelector('.toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+/* ═══════════════════════════════════════════════
+   登录 / 登出
+   ═══════════════════════════════════════════════ */
+async function doLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errorEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginBtn');
+  errorEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = '登录中...';
+
+  try {
+    const resp = await api('POST', '/api/login', { username, password });
+    STATE.token = resp.data.token;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    showToast('登录成功', 'success');
+    initApp();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '登 录';
+  }
+}
+
+async function doLogout() {
+  try { await api('POST', '/api/logout'); } catch(e) {}
+  STATE.token = null;
+  if (STATE.statusInterval) clearInterval(STATE.statusInterval);
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('username').value = '';
+  document.getElementById('password').value = '';
+}
+
+/* ═══════════════════════════════════════════════
+   页面切换
+   ═══════════════════════════════════════════════ */
+function switchPage(page) {
+  document.querySelectorAll('.page-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.getElementById(`page-${page}`).style.display = 'block';
+  document.querySelector(`.nav-item[data-page="${page}"]`).classList.add('active');
+
+  if (page === 'sites') refreshSites();
+  if (page === 'logs') refreshLogs();
+}
+
+/* ═══════════════════════════════════════════════
+   初始化
+   ═══════════════════════════════════════════════ */
+function initApp() {
+  refreshStatus();
+  refreshSites();
+  refreshLogs();
+  STATE.statusInterval = setInterval(refreshStatus, 5000);
+}
+
+/* ═══════════════════════════════════════════════
+   仪表盘
+   ═══════════════════════════════════════════════ */
+async function refreshStatus() {
+  try {
+    const resp = await api('GET', '/api/status');
+    const s = resp.data;
+
+    document.getElementById('stat-uptime').textContent = formatUptime(s.uptime_seconds);
+    document.getElementById('stat-memory').textContent = `${s.memory_percent.toFixed(1)}%`;
+    document.getElementById('stat-cpu').textContent = `${s.cpu_percent.toFixed(1)}%`;
+    document.getElementById('stat-sites').textContent = `${s.sites_count} / ${s.running_sites}`;
+
+    document.getElementById('memInfo').textContent = `${s.memory_used_mb} MB / ${s.memory_total_mb} MB`;
+    document.getElementById('memBar').style.width = `${Math.min(s.memory_percent, 100)}%`;
+    const memBar = document.getElementById('memBar');
+    memBar.className = `progress-fill ${s.memory_percent > 80 ? 'red' : s.memory_percent > 50 ? 'yellow' : 'green'}`;
+
+    document.getElementById('cpuInfo').textContent = `${s.cpu_percent.toFixed(1)}% (${s.cpu_cores} 核心)`;
+    document.getElementById('cpuBar').style.width = `${Math.min(s.cpu_percent, 100)}%`;
+    const cpuBar = document.getElementById('cpuBar');
+    cpuBar.className = `progress-fill ${s.cpu_percent > 80 ? 'red' : s.cpu_percent > 50 ? 'yellow' : 'green'}`;
+
+    document.getElementById('info-hostname').textContent = s.hostname;
+    document.getElementById('info-os').textContent = s.os_version;
+    document.getElementById('info-cores').textContent = s.cpu_cores;
+    document.getElementById('info-version').textContent = `ohos-server v${s.server_version}`;
+  } catch (err) {
+    console.error('刷新状态失败:', err);
+  }
+}
+
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}天 ${h}小时`;
+  if (h > 0) return `${h}小时 ${m}分`;
+  return `${m}分钟`;
+}
+
+/* ═══════════════════════════════════════════════
+   站点管理
+   ═══════════════════════════════════════════════ */
+async function refreshSites() {
+  try {
+    const resp = await api('GET', '/api/sites');
+    STATE.sites = resp.data || [];
+    renderSites();
+  } catch (err) {
+    document.getElementById('siteTableBody').innerHTML =
+      `<tr><td colspan="6" style="text-align:center;color:var(--color-danger);padding:40px;">加载失败: ${err.message}</td></tr>`;
+  }
+}
+
+function renderSites() {
+  const tbody = document.getElementById('siteTableBody');
+  document.getElementById('siteCount').textContent = STATE.sites.length;
+
+  if (STATE.sites.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--color-text-light);padding:40px;">暂无站点配置</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = STATE.sites.map(site => `
+    <tr>
+      <td>${site.id}</td>
+      <td><code>${escapeHtml(site.bind)}</code></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(site.root)}">${escapeHtml(site.root)}</td>
+      <td>${site.domains && site.domains.length ? escapeHtml(site.domains.join(', ')) : '<span style="color:var(--color-text-light)">—</span>'}</td>
+      <td><span class="status-badge ${site.status}">${site.status === 'running' ? '运行中' : '已停止'}</span></td>
+      <td>
+        <div class="action-btns">
+          <button class="btn btn-success btn-sm" onclick="startSite(${site.id})">▶ 启动</button>
+          <button class="btn btn-warning btn-sm" onclick="stopSite(${site.id})">⏹ 停止</button>
+          <button class="btn btn-sm btn-outline" onclick="editSite(${site.id})">✏️ 编辑</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSite(${site.id})">🗑 删除</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function startSite(id) {
+  try {
+    await api('POST', `/api/sites/${id}/start`);
+    showToast(`站点 #${id} 已标记启动`, 'success');
+    refreshSites();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+async function stopSite(id) {
+  try {
+    await api('POST', `/api/sites/${id}/stop`);
+    showToast(`站点 #${id} 已标记停止`, 'info');
+    refreshSites();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+function openSiteModal() {
+  document.getElementById('siteModalTitle').textContent = '新增站点';
+  document.getElementById('siteId').value = '';
+  document.getElementById('siteForm').reset();
+  document.getElementById('siteModal').classList.add('active');
+}
+
+function closeSiteModal() {
+  document.getElementById('siteModal').classList.remove('active');
+}
+
+function editSite(id) {
+  const site = STATE.sites.find(s => s.id === id);
+  if (!site) return;
+  document.getElementById('siteModalTitle').textContent = `编辑站点 #${id}`;
+  document.getElementById('siteId').value = id;
+  document.getElementById('siteBind').value = site.bind;
+  document.getElementById('siteRoot').value = site.root;
+  document.getElementById('siteDomains').value = (site.domains || []).join(', ');
+  document.getElementById('siteWorkers').value = site.workers || 0;
+  document.getElementById('siteUploadSize').value = site.upload_max_size || '10MB';
+  document.getElementById('siteCache').checked = site.cache_enabled || false;
+  document.getElementById('siteListing').checked = site.directory_listing || false;
+  document.getElementById('siteCert').value = '';
+  document.getElementById('siteKey').value = '';
+  document.getElementById('siteModal').classList.add('active');
+}
+
+async function saveSite(e) {
+  e.preventDefault();
+  const id = document.getElementById('siteId').value;
+  const data = {
+    bind: document.getElementById('siteBind').value.trim(),
+    root: document.getElementById('siteRoot').value.trim(),
+    domains: document.getElementById('siteDomains').value.trim()
+      ? document.getElementById('siteDomains').value.split(',').map(s => s.trim()).filter(Boolean)
+      : [],
+    workers: parseInt(document.getElementById('siteWorkers').value) || 0,
+    upload_max_size: document.getElementById('siteUploadSize').value.trim() || '10MB',
+    cache_enabled: document.getElementById('siteCache').checked,
+    directory_listing: document.getElementById('siteListing').checked,
+    ssl_cert: document.getElementById('siteCert').value.trim() || null,
+    ssl_key: document.getElementById('siteKey').value.trim() || null,
+  };
+
+  const btn = document.getElementById('saveSiteBtn');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  try {
+    if (id) {
+      await api('PUT', `/api/sites/${id}`, data);
+      showToast('站点更新成功', 'success');
+    } else {
+      await api('POST', '/api/sites', data);
+      showToast('站点创建成功', 'success');
+    }
+    closeSiteModal();
+    refreshSites();
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '保存';
+  }
+}
+
+async function deleteSite(id) {
+  if (!confirm(`确认删除站点 #${id}？此操作不可撤销。`)) return;
+  try {
+    await api('DELETE', `/api/sites/${id}`);
+    showToast(`站点 #${id} 已删除`, 'info');
+    refreshSites();
+  } catch (err) { showToast(err.message, 'error'); }
+}
+
+/* ═══════════════════════════════════════════════
+   日志
+   ═══════════════════════════════════════════════ */
+async function refreshLogs() {
+  try {
+    const resp = await api('GET', '/api/logs');
+    document.getElementById('logViewer').textContent = resp.message || resp.data || '暂无日志';
+  } catch (err) {
+    document.getElementById('logViewer').textContent = '加载日志失败: ' + err.message;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   工具函数
+   ═══════════════════════════════════════════════ */
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

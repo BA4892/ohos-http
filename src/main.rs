@@ -28,6 +28,7 @@ mod auth;
 mod init;
 mod load_balancer;
 mod logger;
+mod manage;
 mod proxy;
 mod rate_limiter;
 mod rewrite;
@@ -130,6 +131,21 @@ fn main() {
         // 检查是否使用 --force 标志
         let force = args.iter().any(|a| a == "--force" || a == "-f");
         auth::reset_password(&data_dir, force);
+        return;
+    }
+
+    // ─── 检查是否运行 start manage 子命令 ───
+    if args.len() > 1 && args.len() > 2 && args[1] == "start" && args[2] == "manage" {
+        // 解析 -a 参数（管理端地址）
+        let manage_addr = args.windows(2)
+            .find(|w| w[0] == "-a" || w[0] == "--addr")
+            .map(|w| w[1].clone())
+            .unwrap_or_default();
+
+        // 解析 -d 参数（守护进程模式）
+        let daemon = args.iter().any(|a| a == "-d" || a == "--daemon");
+
+        manage::start_manage(&manage_addr, daemon);
         return;
     }
 
@@ -612,7 +628,7 @@ fn determine_workers(app_config: &AppConfig) -> usize {
 //  守护进程化
 // ============================================================================
 
-fn daemonize(pidfile: &str) -> Result<(), String> {
+pub(crate) fn daemonize(pidfile: &str) -> Result<(), String> {
     // 第一次 fork
     let pid = unsafe { libc::fork() };
     if pid < 0 {

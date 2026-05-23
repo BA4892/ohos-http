@@ -58,15 +58,15 @@ const MAX_LOCKOUT_SECS: u64 = 86400; // 24 小时
 
 /// 管理员凭证（加密存储）
 #[derive(Serialize, Deserialize)]
-struct AdminCredentials {
+pub struct AdminCredentials {
     /// 管理员用户名
-    username: String,
+    pub username: String,
     /// PBKDF2 密码哈希（Base64 编码）
-    password_hash: String,
+    pub password_hash: String,
     /// 盐值（Base64 编码）
-    salt: String,
+    pub salt: String,
     /// PBKDF2 迭代次数
-    iterations: u32,
+    pub iterations: u32,
 }
 
 /// 锁定状态
@@ -460,7 +460,7 @@ fn calculate_lockout_duration(round: u32) -> u64 {
 }
 
 /// 加载凭证
-fn load_credentials(data_dir: &Path) -> Option<AdminCredentials> {
+pub fn load_credentials(data_dir: &Path) -> Option<AdminCredentials> {
     let path = credentials_path(data_dir);
     let content = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&content).ok()
