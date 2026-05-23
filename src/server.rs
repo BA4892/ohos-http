@@ -1,4 +1,4 @@
-// Copyright 2025 ohosHttp Contributors
+// Copyright 2025 ohos-server Contributors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -51,13 +51,11 @@ use tokio::sync::watch;
 
 use crate::config::ServerConfig;
 use crate::handler::RequestHandler;
-use crate::manage::ManageHandler;
 
 /// HTTP 服务器实例（单站点）
 pub struct HttpServer {
     config: ServerConfig,
     site_index: Option<usize>,
-    manage_handler: Option<ManageHandler>,
 }
 
 /// 虚拟主机路由器 — 同一端口多个站点共享一个 Listener
@@ -73,13 +71,11 @@ pub struct VirtualHostRouter {
     domain_map: HashMap<String, usize>,
     /// 所有共享此端口的站点配置
     configs: Vec<ServerConfig>,
-    /// 可选的全局管理处理器（仅第一个非空）
-    manage_handler: Option<ManageHandler>,
 }
 
 impl VirtualHostRouter {
     /// 从一组共享同一端口的 ServerConfig 创建路由器
-    pub fn new(configs: Vec<ServerConfig>, manage_handler: Option<ManageHandler>) -> Self {
+    pub fn new(configs: Vec<ServerConfig>) -> Self {
         let mut domain_map = HashMap::new();
         for (idx, cfg) in configs.iter().enumerate() {
             for domain in &cfg.domains {
@@ -90,7 +86,6 @@ impl VirtualHostRouter {
             default_idx: 0,
             domain_map,
             configs,
-            manage_handler,
         }
     }
 
@@ -107,32 +102,21 @@ impl VirtualHostRouter {
         &self.configs[self.default_idx]
     }
 
-    /// 返回所有配置引用
     pub fn all_configs(&self) -> &[ServerConfig] {
         &self.configs
-    }
-
-    /// 获取管理处理器
-    pub fn manage_handler(&self) -> Option<&ManageHandler> {
-        self.manage_handler.as_ref()
     }
 }
 
 impl HttpServer {
+}
+
+impl HttpServer {
     pub fn new(config: ServerConfig) -> Self {
-        HttpServer { config, site_index: None, manage_handler: None }
+        HttpServer { config, site_index: None }
     }
 
     pub fn new_with_index(config: ServerConfig, site_index: usize) -> Self {
-        HttpServer { config, site_index: Some(site_index), manage_handler: None }
-    }
-
-    pub fn new_with_manage(config: ServerConfig, manage_handler: ManageHandler) -> Self {
-        HttpServer { config, site_index: None, manage_handler: Some(manage_handler) }
-    }
-
-    pub fn new_with_manage_and_index(config: ServerConfig, manage_handler: ManageHandler, site_index: usize) -> Self {
-        HttpServer { config, site_index: Some(site_index), manage_handler: Some(manage_handler) }
+        HttpServer { config, site_index: Some(site_index) }
     }
 
     /// 启动服务器（含 TLS、HTTP/2、HTTP/3 支持）
@@ -142,31 +126,16 @@ impl HttpServer {
         let addr: SocketAddr = self.config.bind.parse()
             .map_err(|e| format!("绑定地址格式错误 '{}': {}", self.config.bind, e))?;
 
-        // 创建 Handler（带管理 API + 站点索引）
-        let handler = if let Some(ref manage) = self.manage_handler {
-            if let Some(idx) = self.site_index {
-                Arc::new(RequestHandler::new_with_manage_and_index(
-                    self.config.clone(),
-                    manage.clone(),
-                    idx,
-                ))
-            } else {
-                Arc::new(RequestHandler::new_with_manage(
-                    self.config.clone(),
-                    manage.clone(),
-                ))
-            }
+        // 创建 Handler（带站点索引）
+        let handler = if let Some(idx) = self.site_index {
+            Arc::new(RequestHandler::new_with_site_index(
+                self.config.clone(),
+                idx,
+            ))
         } else {
-            if let Some(idx) = self.site_index {
-                Arc::new(RequestHandler::new_with_site_index(
-                    self.config.clone(),
-                    idx,
-                ))
-            } else {
-                Arc::new(RequestHandler::new(
-                    self.config.clone(),
-                ))
-            }
+            Arc::new(RequestHandler::new(
+                self.config.clone(),
+            ))
         };
 
         // ─── TLS 配置（如果提供了 cert/key） ───
@@ -180,7 +149,7 @@ impl HttpServer {
         // ─── TCP Listener ───
         let listener = create_tcp_listener(addr).await?;
 
-        info!("ohosHttp 服务器启动: {} (根目录: {}, Worker 单线程事件循环)",
+        info!("ohos-server 服务器启动: {} (根目录: {}, Worker 单线程事件循环)",
             self.config.bind, self.config.root);
 
         if tls_config.is_some() {
@@ -212,7 +181,7 @@ impl HttpServer {
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    info!("ohosHttp 服务器 {} 收到关闭信号，正在优雅关闭...", self.config.bind);
+                    info!("ohos-server 服务器 {} 收到关闭信号，正在优雅关闭...", self.config.bind);
                     break;
                 }
                 accept_result = listener.accept() => {
@@ -327,7 +296,7 @@ impl HttpServer {
             }
         }
 
-        info!("ohosHttp 服务器 {} 已停止", self.config.bind);
+        info!("ohos-server 服务器 {} 已停止", self.config.bind);
         Ok(())
     }
 }
@@ -363,11 +332,7 @@ impl VirtualHostServer {
 
         // 为每个站点创建独立的 RequestHandler
         let handlers: Vec<Arc<RequestHandler>> = configs.iter().map(|cfg| {
-            if let Some(manage) = self.router.manage_handler() {
-                Arc::new(RequestHandler::new_with_manage(cfg.clone(), manage.clone()))
-            } else {
-                Arc::new(RequestHandler::new(cfg.clone()))
-            }
+            Arc::new(RequestHandler::new(cfg.clone()))
         }).collect();
 
         // ─── TLS 配置（取第一个非空的 cert/key） ───
@@ -390,7 +355,7 @@ impl VirtualHostServer {
         let listener = create_tcp_listener(addr).await?;
 
         let site_count = configs.len();
-        info!("ohosHttp 多站点服务器启动: {} ({} 个站点, Worker 单线程事件循环)",
+        info!("ohos-server 多站点服务器启动: {} ({} 个站点, Worker 单线程事件循环)",
             bind, site_count);
 
         if tls_config.is_some() {
@@ -426,7 +391,7 @@ impl VirtualHostServer {
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => {
-                    info!("ohosHttp 多站点服务器 {} 收到关闭信号，正在优雅关闭...", bind);
+                    info!("ohos-server 多站点服务器 {} 收到关闭信号，正在优雅关闭...", bind);
                     break;
                 }
                 accept_result = listener.accept() => {
@@ -536,7 +501,7 @@ impl VirtualHostServer {
             }
         }
 
-        info!("ohosHttp 多站点服务器 {} 已停止", bind);
+        info!("ohos-server 多站点服务器 {} 已停止", bind);
         Ok(())
     }
 }

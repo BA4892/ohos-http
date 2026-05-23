@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================
-# ohosHttp - HarmonyOS/OpenHarmony ARM64 专用构建脚本
+# ohos-server - HarmonyOS/OpenHarmony ARM64 专用构建脚本
 # 用法: ./build-ohos.sh [--rebuild]
 #   --rebuild  重新编译（clean 构建）
 # ============================================================
@@ -83,10 +83,10 @@ fi
 info "编译 HarmonyOS (OpenHarmony) ARM64 版本..."
 cargo build --release --target "$TARGET"
 mkdir -p target/release
-cp "target/$TARGET/release/ohosHttp" "target/release/ohosHttp-aarch64-ohos"
+cp "target/$TARGET/release/ohos-server" "target/release/ohos-server-aarch64-ohos"
 
 echo ""
 ok "构建成功！"
-printf "  输出: ${CYAN}target/release/ohosHttp-aarch64-ohos${NC}\n"
-printf "  运行: ${YELLOW}./target/release/ohosHttp-aarch64-ohos -a 127.0.0.1:8089 -r ./www${NC}\n"
+printf "  输出: ${CYAN}target/release/ohos-server-aarch64-ohos${NC}\n"
+printf "  运行: ${YELLOW}./target/release/ohos-server-aarch64-ohos -a 127.0.0.1:8089 -r ./www${NC}\n"
 echo ""

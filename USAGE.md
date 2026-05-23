@@ -1,4 +1,4 @@
-# ohosHttp 完整使用文档
+# ohos-server 完整使用文档
 
 ## 目录
 
@@ -41,9 +41,9 @@
 ## 命令行选项
 
 ```
-ohosHttp - 高性能HTTP服务器
+ohos-server - 高性能HTTP服务器
 
-Usage: ohosHttp [OPTIONS]
+Usage: ohos-server [OPTIONS]
 
 Options:
   -a, --addr <ADDR>                绑定地址，如 "127.0.0.1:8089" [default: ""]
@@ -71,39 +71,39 @@ Options:
 
 ```bash
 # 指定地址和根目录启动
-ohosHttp -a 127.0.0.1:8080 -r ./www
+ohos-server -a 127.0.0.1:8080 -r ./www
 
 # 监听所有网络接口，4个工作线程
-ohosHttp -a 0.0.0.0:80 -r /var/www -t 4
+ohos-server -a 0.0.0.0:80 -r /var/www -t 4
 
 # 仅指定地址（使用默认根目录 ./www）
-ohosHttp -a 127.0.0.1:8080
+ohos-server -a 127.0.0.1:8080
 
 # 启用 HTTPS（需要证书和私钥）
-ohosHttp -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key
+ohos-server -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key
 
 # 同时启用 HTTPS 和 HTTP/3 (QUIC)
-ohosHttp -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key --http3-port 4433
+ohos-server -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key --http3-port 4433
 ```
 
 ### 使用配置文件
 
 ```bash
 # 先生成默认配置
-ohosHttp --gen-config > config.toml
+ohos-server --gen-config > config.toml
 
 # 编辑配置文件后启动
-ohosHttp -c config.toml
+ohos-server -c config.toml
 
 # 启动配置文件中所有站点
-ohosHttp -c config.toml --all
+ohos-server -c config.toml --all
 ```
 
 ### 查看帮助和版本
 
 ```bash
-ohosHttp --help       # 显示帮助信息
-ohosHttp --version    # 显示版本号
+ohos-server --help       # 显示帮助信息
+ohos-server --version    # 显示版本号
 ```
 
 ---
@@ -115,7 +115,7 @@ ohosHttp --version    # 显示版本号
 ### 基本守护进程
 
 ```bash
-ohosHttp -a 0.0.0.0:8080 -d
+ohos-server -a 0.0.0.0:8080 -d
 ```
 
 启动后终端立即返回，服务器在后台持续运行。
@@ -123,7 +123,7 @@ ohosHttp -a 0.0.0.0:8080 -d
 ### 指定 PID 文件
 
 ```bash
-ohosHttp -a 0.0.0.0:8080 -d --pidfile /var/run/ohos.pid
+ohos-server -a 0.0.0.0:8080 -d --pidfile /var/run/ohos.pid
 ```
 
 PID 文件可用于：
@@ -134,7 +134,7 @@ PID 文件可用于：
 ### 配置文件 + 守护进程
 
 ```bash
-ohosHttp -c config.toml -d
+ohos-server -c config.toml -d
 ```
 
 ### 停止守护进程
@@ -144,11 +144,11 @@ ohosHttp -c config.toml -d
 kill $(cat /var/run/ohos.pid)
 
 # 方式2：使用 ps 查找进程
-ps aux | grep ohosHttp
+ps aux | grep ohos-server
 kill -TERM <PID>
 
 # 方式3：使用 pkill
-pkill ohosHttp
+pkill ohos-server
 ```
 
 ### 注意事项
@@ -161,19 +161,19 @@ pkill ohosHttp
 
 ## CGI 解释器配置
 
-ohosHttp 支持通过 CGI 协议运行动态脚本（PHP、Python、Perl 等）。
+ohos-server 支持通过 CGI 协议运行动态脚本（PHP、Python、Perl 等）。
 
 ### 命令行快速配置
 
 ```bash
 # 使用 PHP-CGI 解释器，处理 .php 文件
-ohosHttp -a 0.0.0.0:8080 --interpreter /usr/bin/php-cgi
+ohos-server -a 0.0.0.0:8080 --interpreter /usr/bin/php-cgi
 
 # 使用 Python，处理 .py 和 .cgi 文件
-ohosHttp -a 0.0.0.0:8080 --interpreter /usr/bin/python3 --cgi-ext ".py,.cgi"
+ohos-server -a 0.0.0.0:8080 --interpreter /usr/bin/python3 --cgi-ext ".py,.cgi"
 
 # 完整示例
-ohosHttp -a 0.0.0.0:8080 -r ./www --interpreter /usr/bin/php-cgi --cgi-ext ".php,.phtml"
+ohos-server -a 0.0.0.0:8080 -r ./www --interpreter /usr/bin/php-cgi --cgi-ext ".php,.phtml"
 ```
 
 **说明**：
@@ -217,7 +217,7 @@ cgi = { interpreter = "", extensions = [".cgi", ".pl"] }  # 使用 shebang
 
 ### CGI 工作原理
 
-ohosHttp 实现 CGI/1.1 标准：
+ohos-server 实现 CGI/1.1 标准：
 
 1. 客户端请求 CGI 文件时，服务器解析请求
 2. 设置标准 CGI 环境变量：`REQUEST_METHOD`、`QUERY_STRING`、`SCRIPT_FILENAME`、`CONTENT_TYPE`、`CONTENT_LENGTH`、`HTTP_*` 等
@@ -251,7 +251,7 @@ ohosHttp 实现 CGI/1.1 标准：
 ### 生成默认配置
 
 ```bash
-ohosHttp --gen-config > config.toml
+ohos-server --gen-config > config.toml
 ```
 
 生成的配置文件包含完整的注释和示例。
@@ -392,7 +392,7 @@ to = "$0"
 
 ## 主流框架伪静态配置
 
-ohosHttp 的伪静态引擎支持所有主流 PHP 框架。**关键特性**：当 URL 重写后的路径与原始路径不同时，服务器会自动检查原始路径是否对应一个真实存在的文件，如果是则跳过重写直接服务该文件。这意味着您可以使用一个简单的 catch-all 规则而无需手动排除静态资源目录。
+ohos-server 的伪静态引擎支持所有主流 PHP 框架。**关键特性**：当 URL 重写后的路径与原始路径不同时，服务器会自动检查原始路径是否对应一个真实存在的文件，如果是则跳过重写直接服务该文件。这意味着您可以使用一个简单的 catch-all 规则而无需手动排除静态资源目录。
 
 ### ThinkPHP (5/6/8)
 
@@ -514,7 +514,7 @@ to = "$0"
 | `/api/users` | 重写为 `/index.php/api/users` → PHP CGI 执行 |
 | `/storage/...` | 真实文件或符号链接存在 → 跳过重写，直接服务 |
 
-> **说明**：Laravel 会创建 `public/storage` 符号链接指向 `storage/app/public`。由于 ohosHttp 自动检查文件存在性，真实文件（包括符号链接）会被直接服务，不会被重写到 index.php。
+> **说明**：Laravel 会创建 `public/storage` 符号链接指向 `storage/app/public`。由于 ohos-server 自动检查文件存在性，真实文件（包括符号链接）会被直接服务，不会被重写到 index.php。
 
 ### WordPress
 
@@ -560,7 +560,7 @@ to = "/index.php?r=$1"
 
 ### 注意事项
 
-1. **Rust 正则引擎限制**：ohosHttp 使用 Rust 的 `regex` 库，不支持零宽断言（负向前瞻 `(?!...)`、正向前瞻 `(?=...)` 等）。需要使用多条规则组合来实现排除效果。
+1. **Rust 正则引擎限制**：ohos-server 使用 Rust 的 `regex` 库，不支持零宽断言（负向前瞻 `(?!...)`、正向前瞻 `(?=...)` 等）。需要使用多条规则组合来实现排除效果。
 2. **文件存在性检查**：当规则将 URL 重写为不同路径时，服务器会自动检查原始路径是否对应真实文件。如果是，则跳过重写。这实现了类似 nginx `try_files` 的语义。
 3. **路径匹配优先于 CGI**：如果配置了 `[[server.location]]` 规则（如反向代理），其优先级高于 CGI 处理。确保 `location` 规则不会意外抓走 PHP 请求。
 4. **HTTP Basic Auth**：如果后端 PHP 框架需要认证，可在项目中通过 `.htaccess` 类似的方式或框架中间件实现。
@@ -582,7 +582,7 @@ proxy_pass = "http://127.0.0.1:3000"
 ### 工作原理
 
 1. 客户端请求 `/api/users` 
-2. ohosHttp 将请求转发到 `http://127.0.0.1:3000/api/users`
+2. ohos-server 将请求转发到 `http://127.0.0.1:3000/api/users`
 3. 后端返回的响应透传给客户端
 4. 支持 HTTP/1.1 协议的转发
 
@@ -609,12 +609,12 @@ proxy_pass = "http://127.0.0.1:8080"
 
 ## WebSocket 代理转发
 
-ohosHttp 内置 WebSocket 代理转发功能，无需额外配置——任何已有的 `proxy_pass` 路径规则**自动支持 WebSocket 升级**。当客户端发起 WebSocket 握手请求时，服务器自动建立到后端的 TCP 隧道并桥接双向数据流。
+ohos-server 内置 WebSocket 代理转发功能，无需额外配置——任何已有的 `proxy_pass` 路径规则**自动支持 WebSocket 升级**。当客户端发起 WebSocket 握手请求时，服务器自动建立到后端的 TCP 隧道并桥接双向数据流。
 
 ### 自动识别原理
 
 1. 客户端发送带有 `Upgrade: websocket` 和 `Connection: Upgrade` 头的 HTTP 请求
-2. ohosHttp 通过 `is_websocket_upgrade()` 检测到 WebSocket 升级请求
+2. ohos-server 通过 `is_websocket_upgrade()` 检测到 WebSocket 升级请求
 3. 查找匹配的 `[[server.location]]` 路径规则（按最长前缀匹配），要求配有 `proxy_pass`
 4. 如果匹配：建立到后端的 TCP 连接，转发原始 WebSocket 握手头
 5. 后端返回 **101 Switching Protocols** 后，回复 101 给客户端，开始桥接双向数据
@@ -660,7 +660,7 @@ wss.on('connection', function connection(ws, req) {
     ws.send(`服务端回复: ${data}`);
   });
 
-  ws.send('连接成功！欢迎使用 ohosHttp WebSocket 代理');
+  ws.send('连接成功！欢迎使用 ohos-server WebSocket 代理');
 });
 
 console.log('WebSocket 服务运行在 ws://localhost:8081');
@@ -671,7 +671,7 @@ console.log('WebSocket 服务运行在 ws://localhost:8081');
 node server.js
 ```
 
-#### 2. 配置 ohosHttp
+#### 2. 配置 ohos-server
 
 ```toml
 [[server]]
@@ -685,9 +685,9 @@ path = "/ws"
 proxy_pass = "http://127.0.0.1:8081"
 ```
 
-启动 ohosHttp：
+启动 ohos-server：
 ```bash
-ohosHttp -b 0.0.0.0:8080
+ohos-server -b 0.0.0.0:8080
 ```
 
 #### 3. 客户端连接
@@ -698,7 +698,7 @@ const WebSocket = require('ws');
 const ws = new WebSocket('ws://example.com:8080/ws');
 
 ws.on('open', function open() {
-  ws.send('你好，ohosHttp!');
+  ws.send('你好，ohos-server!');
 });
 
 ws.on('message', function incoming(data) {
@@ -713,8 +713,8 @@ ws.on('error', function error(err) {
 运行：
 ```bash
 node client.js
-# 输出: 收到: 连接成功！欢迎使用 ohosHttp WebSocket 代理
-# 输出: 收到: 服务端回复: 你好，ohosHttp!
+# 输出: 收到: 连接成功！欢迎使用 ohos-server WebSocket 代理
+# 输出: 收到: 服务端回复: 你好，ohos-server!
 ```
 
 ### 多路径 WebSocket 代理
@@ -768,7 +768,7 @@ address = "http://127.0.0.1:9003"
     │
     │  HTTP Upgrade 请求 (Upgrade: websocket)
     ▼
-ohosHttp (0.0.0.0:8080)
+ohos-server (0.0.0.0:8080)
     │
     │  1. 检测到 WebSocket 升级
     │  2. 查找匹配路径 /ws → proxy_pass = "http://127.0.0.1:8081"
@@ -779,7 +779,7 @@ Node.js WebSocket 后端 (127.0.0.1:8081)
     │
     │  返回 101 Switching Protocols
     ▼
-ohosHttp 回复 101 给客户端
+ohos-server 回复 101 给客户端
     │
     │  tokio::select! 双向桥接
     │  ┌──────────────────────────────┐
@@ -804,11 +804,11 @@ ohosHttp 回复 101 给客户端
 
 ### 注意事项
 
-1. **后端必须支持 WebSocket**：ohosHttp 仅做代理转发，后端服务本身需要完整实现 WebSocket 协议
+1. **后端必须支持 WebSocket**：ohos-server 仅做代理转发，后端服务本身需要完整实现 WebSocket 协议
 2. **保持连接存活**：WebSocket 是长连接，请确保后端有合理的连接管理机制（心跳、超时断开）
-3. **跨域问题**：如果前端页面和 WebSocket 服务不同源，需要在 ohosHttp 中配置 CORS（见 [CORS 跨域配置](#cors-跨域配置) 章节）
-4. **端口开放**：确保 ohosHttp 和后端服务之间的网络可达
-5. **协议降级**：如果请求路径没有匹配的 `proxy_pass`，ohosHttp 自动降级为普通 HTTP 处理，WebSocket 握手请求会作为普通请求处理（通常返回 400 或 404）
+3. **跨域问题**：如果前端页面和 WebSocket 服务不同源，需要在 ohos-server 中配置 CORS（见 [CORS 跨域配置](#cors-跨域配置) 章节）
+4. **端口开放**：确保 ohos-server 和后端服务之间的网络可达
+5. **协议降级**：如果请求路径没有匹配的 `proxy_pass`，ohos-server 自动降级为普通 HTTP 处理，WebSocket 握手请求会作为普通请求处理（通常返回 400 或 404）
 
 ### 调试方法
 
@@ -819,11 +819,11 @@ ohosHttp 回复 101 给客户端
 curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Host: localhost" http://127.0.0.1:8081/
 # 应返回 HTTP/1.1 101 Switching Protocols
 
-# 2. 确认 ohosHttp 代理路径配置正确
+# 2. 确认 ohos-server 代理路径配置正确
 curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" -H "Host: example.com" http://127.0.0.1:8080/ws
 # 应返回 HTTP/1.1 101 Switching Protocols
 
-# 3. 查看 ohosHttp 日志
+# 3. 查看 ohos-server 日志
 tail -f server.log | grep -i "websocket"
 
 # 4. 使用 wscat 测试（需要安装）
@@ -873,7 +873,7 @@ cgi = { interpreter = "/usr/bin/php-cgi", extensions = [".php"] }
 
 ## 缓存配置
 
-ohosHttp 提供两级缓存：
+ohos-server 提供两级缓存：
 
 ### 1. 内存缓存（服务器端）
 
@@ -946,7 +946,7 @@ CORS 默认不启用。如果 `cors_origin` 为空或未配置，不会添加任
 
 ## HTTP 方法支持
 
-ohosHttp 完整支持以下 HTTP 方法：
+ohos-server 完整支持以下 HTTP 方法：
 
 | 方法 | 用途 | 处理方式 |
 |------|------|----------|
@@ -971,7 +971,7 @@ ohosHttp 完整支持以下 HTTP 方法：
 
 ## IP 直接访问控制
 
-ohosHttp 支持禁止 IP 直接访问站点，只允许通过绑定的域名访问。
+ohos-server 支持禁止 IP 直接访问站点，只允许通过绑定的域名访问。
 
 ### 配置方式
 
@@ -1002,7 +1002,7 @@ allow_ip_access = false
 
 ## 限流与安全（CC/DDoS 防护）
 
-ohosHttp 提供多层次的 CC/DDoS 攻击防护，包含**请求限流**、**连接限流**、**自动封禁**三大机制。所有防护在 `rate_limit` 配置块内统一配置。
+ohos-server 提供多层次的 CC/DDoS 攻击防护，包含**请求限流**、**连接限流**、**自动封禁**三大机制。所有防护在 `rate_limit` 配置块内统一配置。
 
 ### 快速配置
 
@@ -1247,7 +1247,7 @@ rate_limit = { enabled = false }
 
 ### 禁止访问目录/文件
 
-ohosHttp 支持按目录和文件类型禁止特定路径的访问，适用于保护敏感文件不被泄露。
+ohos-server 支持按目录和文件类型禁止特定路径的访问，适用于保护敏感文件不被泄露。
 
 **注意：**
 1. 此功能仅对静态文件服务生效。如果站点配置了反向代理（`proxy_pass` 或 `load_balance_targets`），禁止访问规则会被自动跳过。
@@ -1284,7 +1284,7 @@ forbidden_files = ["*.toml", "*.env", "*.json", "*.yaml", "*.lock"]
 
 ## Session 支持
 
-ohosHttp 提供基于 Cookie 的内存 Session 管理。
+ohos-server 提供基于 Cookie 的内存 Session 管理。
 
 ### 启用 Session
 
@@ -1324,7 +1324,7 @@ Set-Cookie: OHOS_SESSION=<id>; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600
 
 ## 负载均衡
 
-ohosHttp 支持将请求分发到多个后端服务器，实现负载均衡和高可用。
+ohos-server 支持将请求分发到多个后端服务器，实现负载均衡和高可用。
 
 ### 配置方式
 
@@ -1378,7 +1378,7 @@ weight = 2
 
 ## 访问日志与日志轮转
 
-ohosHttp 支持 Apache Combined Log Format 风格的访问日志，并支持按日期和大小自动轮转。
+ohos-server 支持 Apache Combined Log Format 风格的访问日志，并支持按日期和大小自动轮转。
 
 ### 配置
 
@@ -1447,7 +1447,7 @@ logs/access_2026-05-17.1.log        # 旧文件（已轮转）
 
 ## 停止与重启
 
-ohosHttp 支持通过 Unix 信号进行优雅的停止和重启。
+ohos-server 支持通过 Unix 信号进行优雅的停止和重启。
 
 ### 停止服务
 
@@ -1461,7 +1461,7 @@ kill -TERM <PID>
 kill $(cat /var/run/ohoshttp.pid)
 
 # 或使用 pkill
-pkill ohosHttp
+pkill ohos-server
 ```
 
 收到 SIGTERM 后，服务器会：
@@ -1498,7 +1498,7 @@ kill -1 $(cat /var/run/ohoshttp.pid)
 
 ```bash
 # 启动（守护进程模式）
-ohosHttp -c config.toml -d --pidfile /var/run/ohoshttp.pid
+ohos-server -c config.toml -d --pidfile /var/run/ohoshttp.pid
 
 # 查看运行状态
 cat /var/run/ohoshttp.pid
@@ -1518,16 +1518,16 @@ rm -f /var/run/ohoshttp.pid
 
 ## HTTPS 加密
 
-ohosHttp 支持通过 `--cert` 和 `--key` 命令行参数开启 TLS 加密，同时支持配置文件配置。
+ohos-server 支持通过 `--cert` 和 `--key` 命令行参数开启 TLS 加密，同时支持配置文件配置。
 
 ### 命令行快速启用
 
 ```bash
 # 使用自签名证书（测试用）
-ohosHttp -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key
+ohos-server -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key
 
 # 使用 Let's Encrypt 证书
-ohosHttp -a 0.0.0.0:443 -r ./www --cert /etc/letsencrypt/live/example.com/fullchain.pem --key /etc/letsencrypt/live/example.com/privkey.pem
+ohos-server -a 0.0.0.0:443 -r ./www --cert /etc/letsencrypt/live/example.com/fullchain.pem --key /etc/letsencrypt/live/example.com/privkey.pem
 ```
 
 ### 生成自签名证书（测试用）
@@ -1557,7 +1557,7 @@ key = "/path/to/key.pem"
 
 ## HTTP/2 支持
 
-当启用 HTTPS 后，ohosHttp **自动**支持 HTTP/2，无需任何额外配置。
+当启用 HTTPS 后，ohos-server **自动**支持 HTTP/2，无需任何额外配置。
 
 ### 工作原理
 
@@ -1590,16 +1590,16 @@ HTTP/2 连接默认每 30 秒发送一次 PING 帧保持连接活跃。此行为
 
 ## HTTP/3 (QUIC) 支持
 
-ohosHttp 通过 `--http3-port` 参数支持 HTTP/3 over QUIC（UDP）。
+ohos-server 通过 `--http3-port` 参数支持 HTTP/3 over QUIC（UDP）。
 
 ### 启用 HTTP/3
 
 ```bash
 # 同时启用 HTTPS (TCP) 和 HTTP/3 (UDP)
-ohosHttp -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key --http3-port 4433
+ohos-server -a 0.0.0.0:443 -r ./www --cert server.crt --key server.key --http3-port 4433
 
 # 仅 HTTP/3（需要证书）
-ohosHttp -a 0.0.0.0:80 -r ./www --cert server.crt --key server.key --http3-port 4433
+ohos-server -a 0.0.0.0:80 -r ./www --cert server.crt --key server.key --http3-port 4433
 ```
 
 ### 配置文件方式
@@ -1615,7 +1615,7 @@ http3_port = 4433   # 可选，不设置则不启动 HTTP/3
 
 ### HTTP/3 工作原理
 
-1. ohosHttp 在指定 UDP 端口上建立 QUIC 连接
+1. ohos-server 在指定 UDP 端口上建立 QUIC 连接
 2. QUIC 连接内置 TLS 1.3 加密
 3. 使用 `h3` 和 `h3-quinn` 库实现 HTTP/3 帧传输
 4. 每个客户端请求通过 QUIC 双向流处理
@@ -1673,10 +1673,10 @@ root = "./api"
 
 ```bash
 # 启动所有站点
-ohosHttp -c config.toml --all
+ohos-server -c config.toml --all
 
 # 或逐个启动（每个命令一个站点）
-ohosHttp -c config.toml       # 仅启动第一个站点
+ohos-server -c config.toml       # 仅启动第一个站点
 ```
 
 ### 虚拟主机机制
@@ -1689,7 +1689,7 @@ ohosHttp -c config.toml       # 仅启动第一个站点
 
 ## 启动画面说明
 
-ohosHttp 在启动时显示一个信息画面，包含：
+ohos-server 在启动时显示一个信息画面，包含：
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
@@ -1699,7 +1699,7 @@ ohosHttp 在启动时显示一个信息画面，包含：
   ║    ██║     ██╔══██║██║     ██╔══╝                          ║
   ║    ╚██████╗██║  ██║╚██████╗███████╗                        ║
   ║     ╚═════╝╚═╝  ╚═╝ ╚═════╝╚══════╝                        ║
-  ║   ohosHttp v1.0.0    ─ 高性能 HTTP 服务器                    ║
+  ║   ohos-server v1.0.0    ─ 高性能 HTTP 服务器                    ║
   ╚═══════════════════════════════════════════════════════════════╝
 
   ┌─── 站点 #1 ────────────────────────────────────────────────┐
@@ -1747,7 +1747,7 @@ lsof -i :8080
 netstat -tlnp | grep 8080
 
 # 改用其他端口
-ohosHttp -a 127.0.0.1:8081 -r ./www
+ohos-server -a 127.0.0.1:8081 -r ./www
 ```
 
 ### 2. 配置文件格式错误
@@ -1757,7 +1757,7 @@ ohosHttp -a 127.0.0.1:8081 -r ./www
 ```
 
 解决：
-- 使用 `ohosHttp --gen-config` 生成模板后修改
+- 使用 `ohos-server --gen-config` 生成模板后修改
 - 检查 TOML 格式（注意字符串引号、数组逗号）
 - 不要将手写的重写规则正则中反斜杠写错
 
@@ -1782,7 +1782,7 @@ ohosHttp -a 127.0.0.1:8081 -r ./www
 检查项：
 - 确认端口未被占用
 - 检查 PID 文件写入权限
-- 使用 `ohosHttp` 前台启动查看错误信息（不加 `-d`）
+- 使用 `ohos-server` 前台启动查看错误信息（不加 `-d`）
 
 ### 6. 返回 429 Too Many Requests
 
@@ -1819,256 +1819,12 @@ HTTP/1.1 403 Forbidden
 # 使用 PID 文件
 kill -HUP $(cat /var/run/ohos.pid)   # 重启（暂不支持）
 kill $(cat /var/run/ohos.pid)        # 停止
-ohosHttp -c config.toml -d           # 重新启动
+ohos-server -c config.toml -d           # 重新启动
 
 # 无 PID 文件
-pkill ohosHttp
-ohosHttp -c config.toml -d
+pkill ohos-server
+ohos-server -c config.toml -d
 ```
 
 ---
 
-## 管理 API（鸿蒙 ArkTS 接口）
-
-ohosHttp 提供了一套 RESTful 管理 API，允许通过 HTTP 接口管理服务器。特别为鸿蒙 PC/设备端 ArkTS 应用提供了完整的客户端 SDK。
-
-### 启用管理 API
-
-通过 `--manage-auth` 参数启用：
-
-```bash
-ohosHttp -a 0.0.0.0:8089 -r ./www --manage-auth mySecretToken
-```
-
-如欲停止使用 Arg 也能够在启动时使用 `OHOS_MANAGE_TOKEN` 环境变量：
-
-```bash
-export OHOS_MANAGE_TOKEN=mySecretToken
-ohosHttp -a 0.0.0.0:8089 -r ./www --manage-auth-auto
-```
-
-启用后，启动画面会显示：
-
-```
-  │   管理 API    │  已启用 (/_ohos/, 需要 Bearer Token 认证)
-```
-
-### API 端点一览
-
-| 方法 | 路径 | 描述 | 请求体 |
-|------|------|------|--------|
-| GET | `/_ohos/config` | 获取服务器完整配置 | — |
-| PUT | `/_ohos/config` | 更新配置（TOML 字符串或 JSON） | TOML / JSON |
-| GET | `/_ohos/status` | 获取服务器运行状态 | — |
-| GET | `/_ohos/metrics` | 获取运行时指标 | — |
-| POST | `/_ohos/start` | 恢复服务（取消暂停） | — |
-| POST | `/_ohos/pause` | 暂停服务（新请求返回 503） | — |
-| POST | `/_ohos/stop` | 优雅停止服务器 | — |
-| POST | `/_ohos/restart` | 热重启（重新加载配置 + 零停机） | — |
-
-### 认证方式
-
-所有 API 请求需要在 HTTP 头中携带 Bearer Token：
-
-```
-Authorization: Bearer mySecretToken
-```
-
-### 通用响应结构
-
-```json
-{
-  "code": 0,
-  "message": "success",
-  "data": { ... }
-}
-```
-
-错误时：
-
-```json
-{
-  "code": 401,
-  "message": "Unauthorized",
-  "error": "Invalid or missing auth token"
-}
-```
-
-### 鸿蒙 ArkTS 客户端
-
-项目提供了完整的 ArkTS 接口文件 `examples/ohos-http-api.ets`，包含：
-
-- **类型定义**：`ServerConfig`、`AppConfig`、`StatusData`、`MetricsData` 等全部配置项
-- **客户端类** `OhosHttpClient`：封装所有 API 调用
-- **开发示例**：完整的鸿蒙 @Entry @Component 页面
-
-#### 引入方式
-
-将 `examples/ohos-http-api.ets` 复制到你的鸿蒙项目中：
-
-```typescript
-import { OhosHttpClient } from './ohos-http-api';
-```
-
-#### 基础用法
-
-```typescript
-// 创建客户端（地址为 ohosHttp 绑定地址 + 管理 Token）
-const client = new OhosHttpClient('http://192.168.1.100:8089', 'mySecretToken');
-
-// 获取状态
-const status = await client.getStatus();
-if (status.code === 0) {
-  console.info(`服务器已运行 ${status.data!.status.uptime_human}`);
-}
-
-// 获取完整配置
-const config = await client.getConfig();
-console.info(`站点数: ${config.data!.server_count}`);
-
-// 暂停/恢复
-await client.pause();
-await client.start();
-
-// 热重启
-await client.restart();
-```
-
-#### 开发示例
-
-参考 `examples/ohos-http-api.ets` 文件末尾的完整 ArkTS 页面示例，包含：
-
-- 状态实时刷新
-- 启动 / 暂停 / 重启 / 停止按钮
-- 配置查看与修改界面
-
-### API 响应数据类型
-
-#### `GET /_ohos/config` → `ConfigData`
-
-```typescript
-interface ConfigData {
-  config: AppConfig;    // 完整应用配置（含所有 server 配置项）
-  config_path: string;  // 配置文件路径
-  server_count: number; // 站点数
-}
-```
-
-#### `GET /_ohos/status` → `StatusData`
-
-```typescript
-interface StatusData {
-  server: {
-    version: string;
-    name: string;
-    description: string;
-  };
-  status: {
-    paused: boolean;
-    uptime_secs: number;
-    uptime_human: string;
-    pid: number;
-    ppid: number;
-  };
-  config: {
-    config_path: string;
-    server_count: number;
-  };
-  sites: Array<{
-    bind: string;
-    root: string;
-    domains: string[];
-    https: boolean;
-    workers: number;
-  }>;
-}
-```
-
-#### `GET /_ohos/metrics` → `MetricsData`
-
-```typescript
-interface MetricsData {
-  requests: {
-    total: number;
-    per_second: number;
-  };
-  uptime: {
-    seconds: number;
-    human: string;
-  };
-  process: {
-    pid: number;
-    worker_index: number;
-  };
-  memory: Record<string, string>;
-}
-```
-
-### 配置文件所有配置项
-
-管理 API 暴露的配置项与 TOML 配置文件一一对应。详见下方 ArkTS 类型定义中的 `ServerConfig` 接口：
-
-| 配置字段 | 类型 | 说明 |
-|----------|------|------|
-| `bind` | `string` | 绑定地址和端口 |
-| `root` | `string` | 网站根目录 |
-| `domains` | `string[]` | 虚拟主机域名列表 |
-| `upload_max_size` | `string` | 上传最大大小（如 "10MB"） |
-| `workers` | `number` | Worker 进程数（0=自动） |
-| `cache_enabled` | `boolean` | 是否启用缓存 |
-| `cache_ttl` | `string` | 缓存过期时间（如 "1h"） |
-| `cache_max_size` | `string` | 缓存最大内存（如 "100MB"） |
-| `directory_listing` | `boolean` | 目录列表 |
-| `access_log` | `string?` | 访问日志路径 |
-| `log_rotate_size` | `string` | 日志轮转大小 |
-| `rewrite` | `RewriteRule[]` | URL 重写规则 |
-| `cgi` | `CgiConfig[]` | CGI 解释器配置 |
-| `location` | `LocationConfig[]` | 路径规则（代理/静态/CGI） |
-| `cors_origin` | `string` | CORS 允许的源 |
-| `cors_methods` | `string` | CORS 允许的方法 |
-| `cors_headers` | `string` | CORS 允许的头 |
-| `cert` | `string?` | TLS 证书路径 |
-| `key` | `string?` | TLS 私钥路径 |
-| `http3_port` | `string` | HTTP/3 (QUIC) 端口（0=不启用） |
-| `rate_limit` | `RateLimitConfig?` | 限流配置 |
-| `blacklist` | `string[]` | IP 黑名单 |
-| `per_ip_rates` | `Record<string, number>` | 自定义 IP 限流 |
-| `session` | `SessionConfig?` | Session 配置 |
-| `allow_ip_access` | `boolean` | 允许 IP 直连 |
-| `forbidden_dirs` | `string[]` | 禁止访问的目录列表 |
-| `forbidden_files` | `string[]` | 禁止访问的文件类型列表 |
-
-### cURL 使用示例
-
-```bash
-AUTH="Authorization: Bearer mySecretToken"
-
-# 获取运行状态
-curl -s -H "$AUTH" http://localhost:8089/_ohos/status | jq .
-
-# 获取指标
-curl -s -H "$AUTH" http://localhost:8089/_ohos/metrics | jq .
-
-# 获取配置
-curl -s -H "$AUTH" http://localhost:8089/_ohos/config | jq .
-
-# 更新配置（TOML 格式）
-curl -X PUT -H "$AUTH" -H "Content-Type: text/plain" \
-  -d @config.toml http://localhost:8089/_ohos/config
-
-# 更新配置（JSON 格式）
-curl -X PUT -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"format": "json"}' http://localhost:8089/_ohos/config
-
-# 暂停服务
-curl -X POST -H "$AUTH" http://localhost:8089/_ohos/pause
-
-# 恢复服务
-curl -X POST -H "$AUTH" http://localhost:8089/_ohos/start
-
-# 热重启
-curl -X POST -H "$AUTH" http://localhost:8089/_ohos/restart
-
-# 停止服务
-curl -X POST -H "$AUTH" http://localhost:8089/_ohos/stop
-```

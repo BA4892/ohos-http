@@ -1,4 +1,4 @@
-# ohosHttp - 高性能 HTTP 服务器
+# ohos-server - 高性能 HTTP 服务器
 
 跨平台 HTTP 服务器，支持 HarmonyOS（OpenHarmony）和 Linux x86_64 平台。
 
@@ -27,8 +27,6 @@
 - ✅ **Session 支持** - 基于 Cookie 的内存 Session 管理，支持 TTL 过期
 - ✅ **禁止访问控制** - 按目录和文件类型禁止访问，对反向代理站点自动跳过
 - ✅ **负载均衡** - 加权轮询分发请求到多个后端服务器
-- ✅ **管理 API** - 提供 RESTful 管理接口（配置读写、启停控制、状态监控），含鸿蒙 ArkTS 客户端 SDK
-- ✅ **ArkTS 示例** - 提供完整鸿蒙 ArkTS 调用示例 `examples/ohos-http-api.ets`
 
 ## 完整文档
 
@@ -64,26 +62,26 @@ chmod +x install.sh
 
 ```bash
 # 绑定地址和端口，指定网站目录
-./ohosHttp -a 127.0.0.1:8080 -r ./www
+./ohos-server -a 127.0.0.1:8080 -r ./www
 
 # 指定工作线程数
-./ohosHttp --addr=0.0.0.0:8089 --root=/var/www --threads=4
+./ohos-server --addr=0.0.0.0:8089 --root=/var/www --threads=4
 ```
 
 ### 方式2：配置文件启动
 
 ```bash
 # 生成默认配置文件
-./ohosHttp --gen-config > config.toml
+./ohos-server --gen-config > config.toml
 
 # 编辑配置文件...
 # 启动服务
-./ohosHttp -c config.toml
+./ohos-server -c config.toml
 ```
 
 ## 架构设计
 
-ohosHttp 采用 **进程 (Process) × 线程 (Thread) × 协程 (Coroutine)** 三层架构：
+ohos-server 采用 **进程 (Process) × 线程 (Thread) × 协程 (Coroutine)** 三层架构：
 
 - **进程层**：Master-Worker 多进程模型，每核一个 Worker，`SO_REUSEPORT` 内核级负载均衡
 - **线程层**：Tokio 多线程运行时，Work-Stealing 调度器，真正并行执行
@@ -164,7 +162,7 @@ cargo build
 # 编译 release 版本
 cargo build --release
 
-# 输出在 target/release/ohosHttp
+# 输出在 target/release/ohos-server
 ```
 
 ### 交叉编译
@@ -203,15 +201,13 @@ chmod +x build.sh
 ## 项目结构
 
 ```
-ohos-http/
+ohos-server/
 ├── README.md             # 项目说明
 ├── USAGE.md              # 完整使用文档
 ├── Cargo.toml            # 项目配置和依赖
 ├── build.sh              # 构建脚本
 ├── install.sh            # 鸿蒙系统一键安装脚本
 ├── www/                  # 默认网站根目录
-├── examples/             # 鸿蒙 ArkTS 示例
-│   ├── ohos-http-api.ets # 管理 API 客户端 SDK + 开发示例
 │   └── config.toml       # 示例配置文件
 └── src/
     ├── main.rs           # 入口和 CLI 参数解析
@@ -219,7 +215,6 @@ ohos-http/
     ├── config.rs         # 配置解析
     ├── server.rs         # HTTP 服务器核心
     ├── handler.rs        # 请求处理（静态文件、上传、CGI）
-    ├── manage.rs         # 管理 API（鸿蒙 ArkTS 接口）
     ├── proxy.rs          # 反向代理
     ├── rewrite.rs        # URL 重写引擎（伪静态）
     ├── load_balancer.rs  # 负载均衡
@@ -231,8 +226,8 @@ ohos-http/
 ## 已编译文件
 
 本项目已为 HarmonyOS ARM64 编译完成，二进制文件位于：
-- `target/release/ohosHttp` - HarmonyOS ARM64 可执行文件
-- `target/release/ohosHttp-aarch64-ohos` - 同上（备份）
+- `target/release/ohos-server` - HarmonyOS ARM64 可执行文件
+- `target/release/ohos-server-aarch64-ohos` - 同上（备份）
 
 ## 鸿蒙系统一键安装
 
@@ -244,8 +239,8 @@ chmod +x install.sh
 ```
 
 该脚本会自动执行以下操作：
-1. **创建目录结构** - `~/.local/bin`、`~/.config/ohosHttp`、`~/www`、`~/logs/ohosHttp`
-2. **安装二进制文件** - 将 `ohosHttp` 复制到系统 PATH
+1. **创建目录结构** - `~/.local/bin`、`~/.config/ohos-server`、`~/www`、`~/logs/ohos-server`
+2. **安装二进制文件** - 将 `ohos-server` 复制到系统 PATH
 3. **配置环境变量** - 自动添加 `~/.local/bin` 到 PATH
 4. **创建默认网站** - 生成漂亮的默认首页
 5. **生成默认配置** - 创建开箱即用的 `config.toml`
@@ -268,7 +263,7 @@ chmod +x install.sh
 本项目基于 **Apache License 2.0** 协议开源，采用宽泛的开源条款。
 
 ```
-Copyright 2025 ohosHttp Contributors
+Copyright 2025 ohos-server Contributors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

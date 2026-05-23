@@ -1,4 +1,4 @@
-// Copyright 2025 ohosHttp Contributors
+// Copyright 2025 ohos-server Contributors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! ohosHttp — Workerman 架构 HTTP 服务器
+//! ohos-server — Workerman 架构 HTTP 服务器
 //!
 //! ## 架构
 //!
@@ -24,9 +24,9 @@
 mod banner;
 mod config;
 mod handler;
+mod init;
 mod load_balancer;
 mod logger;
-mod manage;
 mod proxy;
 mod rate_limiter;
 mod rewrite;
@@ -62,7 +62,7 @@ extern "C" fn sighup_handler(_: i32) {
 // ============================================================================
 
 #[derive(Parser, Debug)]
-#[command(name = "ohosHttp", version = env!("CARGO_PKG_VERSION"), about = "高性能 HTTP 服务器 (Workerman 架构)")]
+#[command(name = "ohos-server", version = env!("CARGO_PKG_VERSION"), about = "高性能 HTTP 服务器 (Workerman 架构)")]
 struct CliArgs {
     /// 配置文件路径
     #[arg(short = 'c', long, default_value = "")]
@@ -104,9 +104,6 @@ struct CliArgs {
     #[arg(long, default_value = ".php")]
     cgi_ext: String,
 
-    /// 管理 API 认证 Token（设置后启用 /_ohos/* 管理接口）
-    #[arg(long, default_value = "")]
-    manage_auth: String,
 }
 
 // ============================================================================
@@ -114,6 +111,14 @@ struct CliArgs {
 // ============================================================================
 
 fn main() {
+    // ─── 检查是否运行 init 子命令（在 clap 解析之前截获） ───
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "init" {
+        let dir = args.get(2).map(|s| s.to_string());
+        init::run_init(dir);
+        return;
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .init();
 
@@ -124,6 +129,17 @@ fn main() {
 
     let args = CliArgs::parse();
 
+    // ─── 初始化检查：未初始化时提示用户 ───
+    if !init::is_initialized() {
+        init::print_first_time_prompt();
+        if init::ask_init_now() {
+            init::run_init(None);
+        } else {
+            eprintln!("提示: 下次可随时运行 `ohos-server init` 完成初始化。");
+        }
+        // 用户关闭提示后仍然继续执行（可能使用自定义配置）
+    }
+
     // 生成默认配置文件
     if args.gen_config {
         println!("{}", config::DEFAULT_CONFIG);
@@ -132,16 +148,6 @@ fn main() {
 
     // 加载配置
     let mut app_config = load_config(&args);
-
-    // 设置管理 API 认证（fork 前设置，子进程继承）
-    if !args.manage_auth.is_empty() {
-        manage::set_manage_auth_token(&args.manage_auth);
-        info!("管理 API 已启用 (/_ohos/*)，认证 Token 已配置");
-    }
-
-    // 初始化站点追踪数组（必须在 fork 前调用）
-    manage::init_site_tracking(app_config.server.len());
-    info!("已初始化 {} 个站点的追踪数组", app_config.server.len());
 
     // ─── 路径解析：在 daemonize 之前将所有相对路径转成绝对路径 ───
     // 守护进程化后 chdir("/") 会导致相对路径失效，提前转成绝对路径
@@ -160,7 +166,7 @@ fn main() {
             error!("守护进程化失败: {}", e);
             process::exit(1);
         }
-        info!("ohosHttp 已转入后台运行 (PID: {})", std::process::id());
+        info!("ohos-server 已转入后台运行 (PID: {})", std::process::id());
     }
 
     // ─── Master 进程 ───
@@ -275,7 +281,7 @@ fn resolve_to_absolute(path: &str) -> String {
 fn run_master(app_config: &mut AppConfig, worker_count: usize) {
     // 打印启动画面（仅 Master 打印一次）
     banner::print_startup_banner(&app_config.server, worker_count);
-    info!("ohosHttp v{} 启动中... ({} Worker 进程)", env!("CARGO_PKG_VERSION"), worker_count);
+    info!("ohos-server v{} 启动中... ({} Worker 进程)", env!("CARGO_PKG_VERSION"), worker_count);
 
     // 注册信号处理函数
     unsafe {
@@ -366,7 +372,7 @@ fn run_master(app_config: &mut AppConfig, worker_count: usize) {
                 let mut status: i32 = 0;
                 let _ = unsafe { libc::waitpid(*pid, &mut status, 0) };
             }
-            info!("所有 Worker 已停止，ohosHttp 已正常退出");
+            info!("所有 Worker 已停止，ohos-server 已正常退出");
             break;
         }
 
@@ -438,7 +444,6 @@ fn run_worker(app_config: &AppConfig, worker_id: usize) {
 /// Worker 异步主循环
 async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
     use server::{HttpServer, VirtualHostRouter, VirtualHostServer};
-    use manage::ManageHandler;
     use std::collections::HashMap;
 
     let servers = &app_config.server;
@@ -446,15 +451,6 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
         error!("Worker: 没有可用的服务器配置");
         return;
     }
-
-    // 检查管理 API 是否启用
-    let auth_token = manage::MANAGE_AUTH_TOKEN.get().cloned().unwrap_or_default();
-    let manage_enabled = !auth_token.is_empty();
-    let manage_handler = if manage_enabled {
-        Some(ManageHandler::new(app_config, &auth_token))
-    } else {
-        None
-    };
 
     // 创建关闭信号通道
     let (shutdown_tx, _) = tokio::sync::watch::channel(false);
@@ -473,11 +469,7 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
             let (srv_cfg, site_idx) = configs[0];
             let shutdown_rx = shutdown_tx.subscribe();
             let srv_config = srv_cfg.clone();
-            let server = if let Some(ref manage) = manage_handler {
-                HttpServer::new_with_manage_and_index(srv_config, manage.clone(), site_idx)
-            } else {
-                HttpServer::new_with_index(srv_config, site_idx)
-            };
+            let server = HttpServer::new_with_index(srv_config, site_idx);
             handles.push(tokio::spawn(async move {
                 if let Err(e) = server.start(shutdown_rx).await {
                     error!("服务器启动失败: {}", e);
@@ -489,7 +481,7 @@ async fn run_worker_async(app_config: &AppConfig, _worker_id: usize) {
             let shared_configs: Vec<config::ServerConfig> = configs.iter()
                 .map(|(cfg, _)| (*cfg).clone())
                 .collect();
-            let router = VirtualHostRouter::new(shared_configs, manage_handler.clone());
+            let router = VirtualHostRouter::new(shared_configs);
             let vh_server = VirtualHostServer::new(router);
             handles.push(tokio::spawn(async move {
                 if let Err(e) = vh_server.start(shutdown_rx).await {
@@ -579,17 +571,17 @@ fn load_config(args: &CliArgs) -> AppConfig {
         }
         cfg
     } else {
-        eprintln!("ohosHttp {}", env!("CARGO_PKG_VERSION"));
+        eprintln!("ohos-server {}", env!("CARGO_PKG_VERSION"));
         eprintln!("用法:");
-        eprintln!("  ohosHttp -a 127.0.0.1:8089 -r ./www          # 快速启动");
-        eprintln!("  ohosHttp -c config.toml                        # 从配置文件启动");
-        eprintln!("  ohosHttp --gen-config                          # 生成默认配置文件");
-        eprintln!("  ohosHttp -a 0.0.0.0:8080 -d                   # 守护进程模式");
-        eprintln!("  ohosHttp -a 0.0.0.0:8080 -w 4                 # 4 个 Worker 进程");
-        eprintln!("  ohosHttp -a 0.0.0.0:8080 --interpreter /usr/bin/php-cgi  # 指定PHP解释器");
+        eprintln!("  ohos-server -a 127.0.0.1:8089 -r ./www          # 快速启动");
+        eprintln!("  ohos-server -c config.toml                        # 从配置文件启动");
+        eprintln!("  ohos-server --gen-config                          # 生成默认配置文件");
+        eprintln!("  ohos-server -a 0.0.0.0:8080 -d                   # 守护进程模式");
+        eprintln!("  ohos-server -a 0.0.0.0:8080 -w 4                 # 4 个 Worker 进程");
+        eprintln!("  ohos-server -a 0.0.0.0:8080 --interpreter /usr/bin/php-cgi  # 指定PHP解释器");
         eprintln!("");
         eprintln!("示例:");
-        eprintln!("  ohosHttp --addr=0.0.0.0:8080 --root=/var/www");
+        eprintln!("  ohos-server --addr=0.0.0.0:8080 --root=/var/www");
         process::exit(1);
     }
 }

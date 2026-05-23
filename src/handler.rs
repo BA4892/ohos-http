@@ -1,4 +1,4 @@
-// Copyright 2025 ohosHttp Contributors
+// Copyright 2025 ohos-server Contributors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -33,7 +32,6 @@ use tokio::sync::RwLock;
 use crate::config::{CgiConfig, LocationConfig, ServerConfig};
 use crate::load_balancer::LoadBalancer;
 use crate::logger::AccessLogger;
-use crate::manage::{self, ManageHandler, PAUSED};
 use crate::proxy::ProxyClient;
 use crate::rate_limiter::RateLimiter;
 use crate::rewrite::RewriteEngine;
@@ -69,28 +67,18 @@ pub struct RequestHandler {
     rate_limiter: Option<RateLimiter>,
     session_store: Option<SessionStore>,
     load_balancers: HashMap<String, LoadBalancer>,
-    /// 管理 API 处理器
-    manage_handler: Option<ManageHandler>,
 }
 
 impl RequestHandler {
     pub fn new(config: ServerConfig) -> Self {
-        Self::new_internal(config, None, 0)
+        Self::new_internal(config, 0)
     }
 
     pub fn new_with_site_index(config: ServerConfig, site_index: usize) -> Self {
-        Self::new_internal(config, None, site_index)
+        Self::new_internal(config, site_index)
     }
 
-    pub fn new_with_manage(config: ServerConfig, manage_handler: ManageHandler) -> Self {
-        Self::new_internal(config, Some(manage_handler), 0)
-    }
-
-    pub fn new_with_manage_and_index(config: ServerConfig, manage_handler: ManageHandler, site_index: usize) -> Self {
-        Self::new_internal(config, Some(manage_handler), site_index)
-    }
-
-    fn new_internal(config: ServerConfig, manage_handler: Option<ManageHandler>, site_index: usize) -> Self {
+    fn new_internal(config: ServerConfig, site_index: usize) -> Self {
 
         let rewrite_engine = RewriteEngine::new(&config.rewrite);
         let has_proxy = config.location.iter().any(|l| l.proxy_pass.is_some());
@@ -162,9 +150,9 @@ impl RequestHandler {
             rate_limiter,
             session_store,
             load_balancers,
-            manage_handler,
         }
     }
+
     pub async fn handle(&self, req: Request<Incoming>, remote_addr: String) -> Result<Response<ResponseBody>, hyper::Error> {
         let (parts, body) = req.into_parts();
 
@@ -239,27 +227,6 @@ impl RequestHandler {
         // ─── 请求体大小限制（默认 10MB） ───
         if body_bytes.len() > 10_485_760 {
             return Ok(error_response(413, "Request Entity Too Large"));
-        }
-
-        // ─── 管理 API 路由 ───
-        if path.starts_with("/_ohos/") {
-            if let Some(ref manage_handler) = self.manage_handler {
-                let response = manage_handler.handle_request(method, path, headers, body_bytes.clone()).await;
-                return Ok(response.map(|body| body as ResponseBody));
-            }
-            // 没有配置管理 API 但仍访问了 /_ohos/ 路径
-            return Ok(error_response(404, "Management API is not enabled"));
-        }
-
-        // ─── 暂停检查 ───
-        if PAUSED.load(Ordering::SeqCst) {
-            return Ok(error_response(503, "Service Unavailable: server is paused"));
-        }
-
-        // ─── 全局请求计数 + 每站点计数 ───
-        manage::inc_requests();
-        if let Some(idx) = self.site_index {
-            manage::inc_site_requests(idx);
         }
 
         // ─── Rate limiting check ───
@@ -741,7 +708,7 @@ impl RequestHandler {
         // 准备子进程
         let mut cmd = TokioCommand::new(&cgi.interpreter);
         cmd.arg(&script_filename)
-            .env("SERVER_SOFTWARE", format!("ohosHttp/{}", env!("CARGO_PKG_VERSION")))
+            .env("SERVER_SOFTWARE", format!("ohos-server/{}", env!("CARGO_PKG_VERSION")))
             .env("SERVER_NAME", "localhost")
             .env("GATEWAY_INTERFACE", "CGI/1.1")
             .env("SERVER_PROTOCOL", "HTTP/1.1")
@@ -877,7 +844,7 @@ impl RequestHandler {
         );
         resp.headers_mut().insert(
             hyper::header::HeaderName::from_static("server"),
-            format!("ohosHttp/{}", env!("CARGO_PKG_VERSION")).parse().unwrap()
+            format!("ohos-server/{}", env!("CARGO_PKG_VERSION")).parse().unwrap()
         );
 
         Ok(resp)
@@ -1024,7 +991,7 @@ impl RequestHandler {
                 resp.headers_mut().insert(hyper::header::CONTENT_TYPE, mime.parse().unwrap());
                 resp.headers_mut().insert(
                     hyper::header::HeaderName::from_static("server"),
-                    "ohosHttp/1.0".parse().unwrap()
+                    "ohos-server/1.0".parse().unwrap()
                 );
 
                 // ─── ETag（基于修改时间和文件大小的强验证器） ───
@@ -1329,7 +1296,7 @@ fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
 
 /// 创建错误响应
 fn error_response(status: u16, message: &str) -> Response<ResponseBody> {
-    let body = format!("<!DOCTYPE html><html><head><meta charset='utf-8'><title>{} {}</title></head><body><h1>{} {}</h1><hr><p>ohosHttp/1.0</p></body></html>",
+    let body = format!("<!DOCTYPE html><html><head><meta charset='utf-8'><title>{} {}</title></head><body><h1>{} {}</h1><hr><p>ohos-server/1.0</p></body></html>",
         status, message, status, message);
     let mut resp = Response::new(Full::from(Bytes::from(body)));
     *resp.status_mut() = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
@@ -1339,7 +1306,7 @@ fn error_response(status: u16, message: &str) -> Response<ResponseBody> {
     );
     resp.headers_mut().insert(
         hyper::header::HeaderName::from_static("server"),
-        "ohosHttp/1.0".parse().unwrap()
+        "ohos-server/1.0".parse().unwrap()
     );
     resp
 }

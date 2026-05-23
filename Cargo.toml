@@ -1,12 +1,12 @@
 [package]
-name = "ohos-http"
+name = "ohos-server"
 version = "1.4.1"
 edition = "2021"
 description = "A high-performance HTTP server for HarmonyOS and Linux x86_64"
 license = "Apache-2.0"
 
 [[bin]]
-name = "ohosHttp"
+name = "ohos-server"
 path = "src/main.rs"
 
 [dependencies]

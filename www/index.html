@@ -1,1 +1,309 @@
-<h1>Hello from ohosHttp!</h1>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ohos-server 仪表盘</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 48px 24px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 800px;
+      width: 100%;
+    }
+
+    /* 标题 */
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .header h1 {
+      font-size: 32px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #38bdf8, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header p {
+      color: #64748b;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+    .status-badge {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 6px 18px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .status-badge.online {
+      background: rgba(74, 222, 128, 0.15);
+      border: 1px solid #4ade80;
+      color: #4ade80;
+    }
+    .status-badge.offline {
+      background: rgba(248, 113, 113, 0.15);
+      border: 1px solid #f87171;
+      color: #f87171;
+    }
+    .status-badge.paused {
+      background: rgba(251, 191, 36, 0.15);
+      border: 1px solid #fbbf24;
+      color: #fbbf24;
+    }
+
+    /* 卡片 */
+    .card {
+      background: #1e293b;
+      border-radius: 16px;
+      border: 1px solid #334155;
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #38bdf8;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* 信息行 */
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #1e293b;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-label {
+      color: #94a3b8;
+      font-size: 14px;
+    }
+    .info-value {
+      color: #f1f5f9;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: right;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+    }
+
+    /* 站点列表 */
+    .site-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      background: #0f172a;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      border: 1px solid #1e293b;
+    }
+    .site-row:last-child {
+      margin-bottom: 0;
+    }
+    .site-name {
+      font-size: 14px;
+    }
+    .site-name .domain {
+      color: #38bdf8;
+      font-weight: 500;
+    }
+    .site-name .bind {
+      color: #64748b;
+      font-size: 12px;
+    }
+    .site-pill {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .site-pill.active {
+      background: rgba(74, 222, 128, 0.15);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.3);
+    }
+    .site-pill.paused {
+      background: rgba(251, 191, 36, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, 0.3);
+    }
+    .site-requests {
+      font-family: 'SF Mono', monospace;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    /* 响应式 */
+    @media (max-width: 640px) {
+      body { padding: 24px 16px; }
+      .card { padding: 20px; }
+      .info-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+      .info-value { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>⚡ ohos-server</h1>
+    <p id="subtitle">加载中...</p>
+    <div id="statusBadge" class="status-badge">—</div>
+  </div>
+
+  <!-- 服务器信息面板 -->
+  <div class="card">
+    <div class="card-title">📋 服务器信息</div>
+    <div id="serverInfo"></div>
+  </div>
+
+  <!-- 站点列表 -->
+  <div class="card">
+    <div class="card-title">🌐 站点列表</div>
+    <div id="siteList"></div>
+  </div>
+
+  <!-- 配置信息 -->
+  <div class="card">
+    <div class="card-title">⚙️ 配置概览</div>
+    <div id="configInfo"></div>
+  </div>
+
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+const AUTH = 'Bearer test-token-123';
+
+async function fetchJSON(endpoint) {
+  const res = await fetch(API_BASE + endpoint, {
+    headers: { 'Authorization': AUTH }
+  });
+  return res.json();
+}
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '—';
+  return String(str);
+}
+
+async function loadDashboard() {
+  try {
+    const data = await fetchJSON('/_ohos/status');
+    const { server, status, config, sites } = data.data;
+
+    // 标题状态
+    document.getElementById('subtitle').textContent = server.description || 'A high-performance HTTP server';
+
+    // 状态标签
+    const badge = document.getElementById('statusBadge');
+    if (status.paused) {
+      badge.textContent = '⏸️ 已暂停';
+      badge.className = 'status-badge paused';
+    } else {
+      badge.textContent = '🟢 运行中';
+      badge.className = 'status-badge online';
+    }
+
+    // 服务器信息
+    const si = document.getElementById('serverInfo');
+    si.innerHTML = `
+      <div class="info-row">
+        <span class="info-label">程序名称</span>
+        <span class="info-value">${escapeHtml(server.name)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">版本号</span>
+        <span class="info-value">v${escapeHtml(server.version)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">进程 PID</span>
+        <span class="info-value">${escapeHtml(status.pid)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">父进程 PPID</span>
+        <span class="info-value">${escapeHtml(status.ppid)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">运行时长</span>
+        <span class="info-value">${escapeHtml(status.uptime_human)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Worker 内存</span>
+        <span class="info-value">${(status.worker_memory_kb / 1024).toFixed(1)} MB</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">服务状态</span>
+        <span class="info-value">${status.paused ? '⏸️ 已暂停' : '🟢 正常'}</span>
+      </div>
+    `;
+
+    // 站点列表
+    const sl = document.getElementById('siteList');
+    if (sites && sites.length > 0) {
+      sl.innerHTML = sites.map((site, i) => `
+        <div class="site-row">
+          <div class="site-name">
+            <div><span class="domain">${escapeHtml(site.domains.join(', '))}</span></div>
+            <div class="bind">${escapeHtml(site.bind)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="site-requests">${escapeHtml(site.requests)} 请求</span>
+            <span class="site-pill ${site.paused ? 'paused' : 'active'}">${site.paused ? '⏸️ 暂停' : '▶ 运行'}</span>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      sl.innerHTML = '<p style="color:#64748b;font-size:14px;">暂无站点</p>';
+    }
+
+    // 配置信息
+    const ci = document.getElementById('configInfo');
+    ci.innerHTML = `
+      <div class="info-row">
+        <span class="info-label">配置文件</span>
+        <span class="info-value">${escapeHtml(config.config_path)}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">站点数量</span>
+        <span class="info-value">${escapeHtml(config.server_count)}</span>
+      </div>
+    `;
+
+  } catch (e) {
+    document.getElementById('subtitle').textContent = '连接失败';
+    document.getElementById('statusBadge').textContent = '🔴 离线';
+    document.getElementById('statusBadge').className = 'status-badge offline';
+    document.getElementById('serverInfo').innerHTML =
+      '<p style="color:#f87171;font-size:14px;">无法连接到服务器 API</p>';
+  }
+}
+
+loadDashboard();
+setInterval(loadDashboard, 5000);
+</script>
+</body>
+</html>

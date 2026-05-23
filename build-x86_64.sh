@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================
-# ohosHttp - Linux x86_64 专用构建脚本
+# ohos-server - Linux x86_64 专用构建脚本
 # 用法: ./build-x86_64.sh [--rebuild]
 #   --rebuild  重新编译（安装系统依赖 + clean 构建）
 # ============================================================
@@ -132,10 +132,10 @@ info "编译 Linux x86_64 版本..."
 export CC=gcc
 cargo build --release --target "$TARGET"
 mkdir -p target/release
-cp "target/$TARGET/release/ohosHttp" "target/release/ohosHttp-x86_64-linux"
+cp "target/$TARGET/release/ohos-server" "target/release/ohos-server-x86_64-linux"
 
 echo ""
 ok "构建成功！"
-printf "  输出: ${CYAN}target/release/ohosHttp-x86_64-linux${NC}\n"
-printf "  运行: ${YELLOW}./target/release/ohosHttp-x86_64-linux -a 127.0.0.1:8089 -r ./www${NC}\n"
+printf "  输出: ${CYAN}target/release/ohos-server-x86_64-linux${NC}\n"
+printf "  运行: ${YELLOW}./target/release/ohos-server-x86_64-linux -a 127.0.0.1:8089 -r ./www${NC}\n"
 echo ""

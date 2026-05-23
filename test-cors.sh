@@ -1,14 +1,14 @@
 #!/bin/sh
 set -e
 
-cd /storage/Users/currentUser/Documents/Myapp/rust/ohos-http
+cd /storage/Users/currentUser/Documents/Myapp/rust/ohos-server
 
 # Kill any existing server
-pkill -f ohosHttp 2>/dev/null || true
+pkill -f ohos-server 2>/dev/null || true
 sleep 1
 
 # Start server
-target/debug/ohosHttp -c test-dual/config-dual.toml &
+target/debug/ohos-server -c test-dual/config-dual.toml &
 PID=$!
 sleep 3
 
@@ -31,7 +31,7 @@ echo ""
 
 # Now test with CORS enabled
 echo "=== 测试2: 启用 CORS 配置 ==="
-pkill -f ohosHttp 2>/dev/null || true
+pkill -f ohos-server 2>/dev/null || true
 sleep 1
 
 # Use a modified config with CORS enabled
@@ -47,7 +47,7 @@ cors_methods = "GET,POST,PUT,DELETE,PATCH,OPTIONS"
 cors_headers = "Content-Type,Authorization,X-Requested-With"
 TOML
 
-target/debug/ohosHttp -c /tmp/config-cors.toml &
+target/debug/ohos-server -c /tmp/config-cors.toml &
 PID=$!
 sleep 3
 
@@ -64,7 +64,7 @@ curl -s -w "\nHTTP_CODE: %{http_code}" -D- -H "Host: site1.example.com" -H "Orig
 echo ""
 
 echo "--- 特定源 cors_origin=example.com ---"
-pkill -f ohosHttp 2>/dev/null || true
+pkill -f ohos-server 2>/dev/null || true
 sleep 1
 
 cat > /tmp/config-cors2.toml << 'TOML'
@@ -79,7 +79,7 @@ cors_methods = "GET,POST"
 cors_headers = "Content-Type"
 TOML
 
-target/debug/ohosHttp -c /tmp/config-cors2.toml &
+target/debug/ohos-server -c /tmp/config-cors2.toml &
 PID=$!
 sleep 3
 
@@ -92,6 +92,6 @@ curl -s -D- -H "Host: site1.example.com" -H "Origin: https://evil.com" -o /dev/n
 # Should still return the configured cors_origin (not dynamic)
 echo ""
 
-pkill -f ohosHttp 2>/dev/null || true
+pkill -f ohos-server 2>/dev/null || true
 echo ""
 echo "=== 测试完成 ==="

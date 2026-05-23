@@ -1,6 +1,6 @@
 #!/bin/sh
-# 🔐 安全测试脚本 — ohosHttp v1.4.0
-cd /storage/Users/currentUser/Documents/Myapp/rust/ohos-http
+# 🔐 安全测试脚本 — ohos-server v1.4.0
+cd /storage/Users/currentUser/Documents/Myapp/rust/ohos-server
 
 PASS=0; FAIL=0
 
@@ -15,7 +15,7 @@ check() {
 }
 
 echo "╔══════════════════════════════════════════════╗"
-echo "║    🔐 Security Test — ohosHttp v1.4.0      ║"
+echo "║    🔐 Security Test — ohos-server v1.4.0      ║"
 echo "╚══════════════════════════════════════════════╝"
 echo
 

@@ -1,4 +1,4 @@
-// Copyright 2025 ohosHttp Contributors
+// Copyright 2025 ohos-server Contributors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -440,15 +440,15 @@ impl AppConfig {
 
 /// 默认配置文件内容，作为文档
 pub const DEFAULT_CONFIG: &str = r#"# ═══════════════════════════════════════════════
-# ohosHttp 服务器配置文件
+# ohos-server 服务器配置文件
 # ═══════════════════════════════════════════════
 # 使用方式：
-#   ohosHttp -c config.toml          # 从配置文件启动
-#   ohosHttp -c config.toml -d       # 守护进程模式启动
-#   ohosHttp -c config.toml --all    # 启动配置中所有站点
+#   ohos-server -c config.toml          # 从配置文件启动
+#   ohos-server -c config.toml -d       # 守护进程模式启动
+#   ohos-server -c config.toml --all    # 启动配置中所有站点
 #
 # 生成本配置：
-#   ohosHttp --gen-config > config.toml
+#   ohos-server --gen-config > config.toml
 # ═══════════════════════════════════════════════
 
 # =============================================

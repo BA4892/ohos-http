@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================
-# ohosHttp - Linux ARM64 (aarch64) 专用构建脚本
+# ohos-server - Linux ARM64 (aarch64) 专用构建脚本
 # 用法: ./build-arm.sh [--rebuild]
 #   --rebuild  重新编译（安装系统依赖 + clean 构建）
 # 注意: 在 x86_64 主机上交叉编译需要安装 aarch64 交叉编译器
@@ -165,10 +165,10 @@ else
     cargo build --release --target "$TARGET"
 fi
 mkdir -p target/release
-cp "target/$TARGET/release/ohosHttp" "target/release/ohosHttp-aarch64-linux"
+cp "target/$TARGET/release/ohos-server" "target/release/ohos-server-aarch64-linux"
 
 echo ""
 ok "构建成功！"
-printf "  输出: ${CYAN}target/release/ohosHttp-aarch64-linux${NC}\n"
-printf "  运行: ${YELLOW}./target/release/ohosHttp-aarch64-linux -a 127.0.0.1:8089 -r ./www${NC}\n"
+printf "  输出: ${CYAN}target/release/ohos-server-aarch64-linux${NC}\n"
+printf "  运行: ${YELLOW}./target/release/ohos-server-aarch64-linux -a 127.0.0.1:8089 -r ./www${NC}\n"
 echo ""

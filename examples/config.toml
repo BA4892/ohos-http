@@ -1,4 +1,4 @@
-# ohosHttp 完整配置示例
+# ohos-server 完整配置示例
 
 [[server]]
 bind = "0.0.0.0:8080"

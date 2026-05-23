@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================
-# ohosHttp - 鸿蒙系统一键安装脚本
+# ohos-server - 鸿蒙系统一键安装脚本
 # 适用于 OpenHarmony / HarmonyOS ARM64 平台
 # 用法: chmod +x install.sh && ./install.sh
 # ============================================================
@@ -23,7 +23,7 @@ error() { printf "${RED}[ERROR]${NC} %s\n" "$*"; }
 # ---- 横幅 ----
 cat << 'BANNER'
 =========================================
-  ohosHttp v1.3.1 - 一键安装
+  ohos-server v1.3.1 - 一键安装
   高性能 HTTP 服务器
   支持 HarmonyOS / Linux / macOS
 =========================================
@@ -34,8 +34,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local}"
 BIN_DIR="$INSTALL_DIR/bin"
 WWW_DIR="${WWW_DIR:-$HOME/www}"
-CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/ohosHttp}"
-LOGS_DIR="$HOME/logs/ohosHttp"
+CONFIG_DIR="${CONFIG_DIR:-$HOME/.config/ohos-server}"
+LOGS_DIR="$HOME/logs/ohos-server"
 
 # ── 平台检测 ──
 detect_platform() {
@@ -75,28 +75,28 @@ mkdir -p "$LOGS_DIR"
 ok "目录创建完成"
 
 # ---- 步骤 2: 安装二进制文件 ----
-info "安装 ohosHttp 二进制..."
+info "安装 ohos-server 二进制..."
 
 # 查找二进制文件（支持平台专用构建脚本的输出名）
 BINARY_SOURCE=""
 for candidate in \
-    "$SCRIPT_DIR/target/release/ohosHttp" \
-    "$SCRIPT_DIR/target/release/ohosHttp-aarch64-ohos" \
-    "$SCRIPT_DIR/target/release/ohosHttp-x86_64-linux" \
-    "$SCRIPT_DIR/target/release/ohosHttp-aarch64-linux" \
-    "$SCRIPT_DIR/target/release/ohosHttp-aarch64-darwin" \
-    "$SCRIPT_DIR/target/release/ohosHttp-x86_64-darwin" \
-    "$SCRIPT_DIR/ohosHttp" \
-    "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp" \
-    "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/ohosHttp" \
-    "$SCRIPT_DIR/target/x86_64-unknown-linux-gnu/release/ohosHttp"; do
+    "$SCRIPT_DIR/target/release/ohos-server" \
+    "$SCRIPT_DIR/target/release/ohos-server-aarch64-ohos" \
+    "$SCRIPT_DIR/target/release/ohos-server-x86_64-linux" \
+    "$SCRIPT_DIR/target/release/ohos-server-aarch64-linux" \
+    "$SCRIPT_DIR/target/release/ohos-server-aarch64-darwin" \
+    "$SCRIPT_DIR/target/release/ohos-server-x86_64-darwin" \
+    "$SCRIPT_DIR/ohos-server" \
+    "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohos-server" \
+    "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/ohos-server" \
+    "$SCRIPT_DIR/target/x86_64-unknown-linux-gnu/release/ohos-server"; do
     if [ -f "$candidate" ] && [ -x "$candidate" ]; then
         BINARY_SOURCE="$candidate"
         break
     fi
 done
 if [ -z "$BINARY_SOURCE" ]; then
-    warn "未找到预编译的 ohosHttp 二进制"
+    warn "未找到预编译的 ohos-server 二进制"
     echo ""
     printf "  ${YELLOW}将调用平台专用脚本从源代码编译...${NC}\n"
     echo ""
@@ -340,7 +340,7 @@ if [ -z "$BINARY_SOURCE" ]; then
                         _line="export PATH=\"${RUST_BIN_DIR:-\$HOME/.cargo/bin}:\$PATH\""
                         if ! grep -q "cargo/bin" "$_rp" 2>/dev/null; then
                             echo "" >> "$_rp"
-                            echo "# Rust PATH（由 ohosHttp 安装脚本添加）" >> "$_rp"
+                            echo "# Rust PATH（由 ohos-server 安装脚本添加）" >> "$_rp"
                             echo "$_line" >> "$_rp"
                             ok "已添加 Rust PATH 到 ${_rp}"
                         else
@@ -380,7 +380,7 @@ if [ -z "$BINARY_SOURCE" ]; then
         # 写入 shell 配置
         if [ -n "$SHELL_PROFILE" ]; then
             echo "" >> "$SHELL_PROFILE"
-            echo "# ohosHttp: C 编译器（鸿蒙 PC 无 cc）" >> "$SHELL_PROFILE"
+            echo "# ohos-server: C 编译器（鸿蒙 PC 无 cc）" >> "$SHELL_PROFILE"
             echo "export CC=clang" >> "$SHELL_PROFILE"
             echo "export CC_aarch64-unknown-linux-ohos=clang" >> "$SHELL_PROFILE"
         fi
@@ -410,7 +410,7 @@ CCWRAP
         export PATH="${BIN_DIR}:$PATH"
         if [ -n "$SHELL_PROFILE" ]; then
             echo "" >> "$SHELL_PROFILE"
-            echo "# ohosHttp: cc 包装脚本（鸿蒙 PC 无 cc）" >> "$SHELL_PROFILE"
+            echo "# ohos-server: cc 包装脚本（鸿蒙 PC 无 cc）" >> "$SHELL_PROFILE"
             echo "export PATH=\"${BIN_DIR}:\$PATH\"" >> "$SHELL_PROFILE"
         fi
         warn "已创建 cc 包装脚本: ${CC_WRAPPER}"
@@ -463,7 +463,7 @@ CARGOEOF
     # 检查平台构建脚本是否存在
     if [ ! -f "$SCRIPT_DIR/$BUILD_SCRIPT" ]; then
         error "找不到 $BUILD_SCRIPT 构建脚本！"
-        error "请从 https://gitcode.com/cncoder/ohos-http/releases 下载预编译二进制"
+        error "请从 https://gitcode.com/cncoder/ohos-server/releases 下载预编译二进制"
         error "或选择对应平台的构建脚本:"
         error "  Linux x86_64:    ./build-x86_64.sh"
         error "  Linux ARM64:     ./build-arm.sh"
@@ -478,7 +478,7 @@ CARGOEOF
         n|N|no|NO)
             echo ""
             error "用户取消编译"
-            error "请从 https://gitcode.com/cncoder/ohos-http/releases 下载预编译二进制"
+            error "请从 https://gitcode.com/cncoder/ohos-server/releases 下载预编译二进制"
             exit 1
             ;;
         *)
@@ -502,15 +502,15 @@ CARGOEOF
 
     # 编译后再次查找二进制
     for candidate in \
-        "$SCRIPT_DIR/target/release/ohosHttp" \
-        "$SCRIPT_DIR/target/release/ohosHttp-aarch64-ohos" \
-        "$SCRIPT_DIR/target/release/ohosHttp-x86_64-linux" \
-        "$SCRIPT_DIR/target/release/ohosHttp-aarch64-linux" \
-        "$SCRIPT_DIR/target/release/ohosHttp-aarch64-darwin" \
-        "$SCRIPT_DIR/target/release/ohosHttp-x86_64-darwin" \
-        "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohosHttp" \
-        "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/ohosHttp" \
-        "$SCRIPT_DIR/target/x86_64-unknown-linux-gnu/release/ohosHttp"; do
+        "$SCRIPT_DIR/target/release/ohos-server" \
+        "$SCRIPT_DIR/target/release/ohos-server-aarch64-ohos" \
+        "$SCRIPT_DIR/target/release/ohos-server-x86_64-linux" \
+        "$SCRIPT_DIR/target/release/ohos-server-aarch64-linux" \
+        "$SCRIPT_DIR/target/release/ohos-server-aarch64-darwin" \
+        "$SCRIPT_DIR/target/release/ohos-server-x86_64-darwin" \
+        "$SCRIPT_DIR/target/aarch64-unknown-linux-ohos/release/ohos-server" \
+        "$SCRIPT_DIR/target/aarch64-unknown-linux-gnu/release/ohos-server" \
+        "$SCRIPT_DIR/target/x86_64-unknown-linux-gnu/release/ohos-server"; do
         if [ -f "$candidate" ] && [ -x "$candidate" ]; then
             BINARY_SOURCE="$candidate"
             break
@@ -520,14 +520,14 @@ CARGOEOF
     if [ -z "$BINARY_SOURCE" ]; then
         error "编译完成，但未找到生成的二进制文件！"
         error "请检查 target/release/ 目录下的输出"
-        ls -lh "$SCRIPT_DIR/target/release/"*ohosHttp* 2>/dev/null || true
+        ls -lh "$SCRIPT_DIR/target/release/"*ohos-server* 2>/dev/null || true
         exit 1
     fi
 fi
 
-cp "$BINARY_SOURCE" "$BIN_DIR/ohosHttp"
-chmod +x "$BIN_DIR/ohosHttp"
-ok "二进制安装完成: $BIN_DIR/ohosHttp"
+cp "$BINARY_SOURCE" "$BIN_DIR/ohos-server"
+chmod +x "$BIN_DIR/ohos-server"
+ok "二进制安装完成: $BIN_DIR/ohos-server"
 
 # ---- 步骤 3: 配置 PATH ----
 info "配置环境变量..."
@@ -543,7 +543,7 @@ fi
 
 if [ -n "$SHELL_PROFILE" ]; then
     if ! grep -q "export PATH=\"$BIN_DIR:\$PATH\"" "$SHELL_PROFILE" 2>/dev/null; then
-        printf "\n# ohosHttp PATH\nexport PATH=\"%s:\$PATH\"\n" "$BIN_DIR" >> "$SHELL_PROFILE"
+        printf "\n# ohos-server PATH\nexport PATH=\"%s:\$PATH\"\n" "$BIN_DIR" >> "$SHELL_PROFILE"
         ok "已添加 PATH 到 $SHELL_PROFILE"
     else
         ok "PATH 已配置"
@@ -565,7 +565,7 @@ if [ ! -f "$WWW_DIR/index.html" ]; then
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ohosHttp - 运行成功</title>
+    <title>ohos-server - 运行成功</title>
     <style>
         body { font-family: -apple-system, sans-serif; text-align: center; padding: 80px 20px; background: #f5f5f5; }
         .card { background: white; border-radius: 12px; padding: 40px; max-width: 600px; margin: 0 auto; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
@@ -576,10 +576,10 @@ if [ ! -f "$WWW_DIR/index.html" ]; then
 </head>
 <body>
     <div class="card">
-        <h1>🎉 ohosHttp 运行成功</h1>
+        <h1>🎉 ohos-server 运行成功</h1>
         <p>您的鸿蒙 HTTP 服务器已成功启动！</p>
         <p>项目由 <strong>鸿蒙 PC 的 AI 代理</strong> 维护。</p>
-        <p class="version">ohosHttp v1.1.0 - HarmonyOS ARM64</p>
+        <p class="version">ohos-server v1.1.0 - HarmonyOS ARM64</p>
     </div>
 </body>
 </html>
@@ -592,8 +592,8 @@ fi
 # ---- 步骤 5: 生成默认配置文件 ----
 info "生成默认配置文件..."
 if [ ! -f "$CONFIG_DIR/config.toml" ]; then
-    "$BIN_DIR/ohosHttp" --gen-config > "$CONFIG_DIR/config.toml" 2>/dev/null || cat > "$CONFIG_DIR/config.toml" << 'TOML'
-# ohosHttp 默认配置
+    "$BIN_DIR/ohos-server" --gen-config > "$CONFIG_DIR/config.toml" 2>/dev/null || cat > "$CONFIG_DIR/config.toml" << 'TOML'
+# ohos-server 默认配置
 [[server]]
 bind = "0.0.0.0:8089"
 root = "./www"
@@ -614,30 +614,30 @@ fi
 # 如果系统支持 init.d 或 service 命令，尝试注册服务
 if command -v service >/dev/null 2>&1 && [ -d /etc/init.d ]; then
     info "注册系统服务..."
-    INIT_SCRIPT="/etc/init.d/ohosHttp"
+    INIT_SCRIPT="/etc/init.d/ohos-server"
     if [ ! -f "$INIT_SCRIPT" ]; then
-        cat > /tmp/ohosHttp.init << 'INIT'
+        cat > /tmp/ohos-server.init << 'INIT'
 #!/bin/sh
 ### BEGIN INIT INFO
-# Provides:          ohosHttp
+# Provides:          ohos-server
 # Required-Start:    $network $local_fs
 # Required-Stop:     $network $local_fs
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Description:       ohosHttp - High-performance HTTP server for HarmonyOS
+# Description:       ohos-server - High-performance HTTP server for HarmonyOS
 ### END INIT INFO
 
-BIN="/storage/Users/currentUser/.local/bin/ohosHttp"
-CONFIG="/storage/Users/currentUser/.config/ohosHttp/config.toml"
-PIDFILE="/var/run/ohosHttp.pid"
+BIN="/storage/Users/currentUser/.local/bin/ohos-server"
+CONFIG="/storage/Users/currentUser/.config/ohos-server/config.toml"
+PIDFILE="/var/run/ohos-server.pid"
 
 case "$1" in
     start)
-        echo "Starting ohosHttp..."
+        echo "Starting ohos-server..."
         $BIN -c $CONFIG -d --pidfile $PIDFILE
         ;;
     stop)
-        echo "Stopping ohosHttp..."
+        echo "Stopping ohos-server..."
         [ -f $PIDFILE ] && kill $(cat $PIDFILE) 2>/dev/null && rm -f $PIDFILE
         ;;
     restart)
@@ -645,9 +645,9 @@ case "$1" in
         ;;
     status)
         if [ -f $PIDFILE ] && kill -0 $(cat $PIDFILE) 2>/dev/null; then
-            echo "ohosHttp is running (PID: $(cat $PIDFILE))"
+            echo "ohos-server is running (PID: $(cat $PIDFILE))"
         else
-            echo "ohosHttp is not running"
+            echo "ohos-server is not running"
         fi
         ;;
     *)
@@ -656,13 +656,13 @@ case "$1" in
         ;;
 esac
 INIT
-        if cp /tmp/ohosHttp.init $INIT_SCRIPT 2>/dev/null; then
+        if cp /tmp/ohos-server.init $INIT_SCRIPT 2>/dev/null; then
             chmod +x $INIT_SCRIPT
             ok "系统服务已注册: $INIT_SCRIPT"
         else
             warn "需要 root 权限才能注册系统服务，跳过"
         fi
-        rm -f /tmp/ohosHttp.init
+        rm -f /tmp/ohos-server.init
     else
         ok "系统服务已存在"
     fi
@@ -670,8 +670,8 @@ fi
 
 # ---- 步骤 7: 验证安装 ----
 info "验证安装..."
-if command -v ohosHttp >/dev/null 2>&1; then
-    VERSION=$("$BIN_DIR/ohosHttp" --version 2>&1)
+if command -v ohos-server >/dev/null 2>&1; then
+    VERSION=$("$BIN_DIR/ohos-server" --version 2>&1)
     ok "安装成功！版本: $VERSION"
 else
     warn "请重新打开终端或运行 'source $SHELL_PROFILE' 使 PATH 生效"
@@ -680,20 +680,20 @@ fi
 # ---- 完成 ----
 echo ""
 printf "${GREEN}=========================================${NC}\n"
-printf "${GREEN}  ohosHttp 安装完成！${NC}\n"
+printf "${GREEN}  ohos-server 安装完成！${NC}\n"
 printf "${GREEN}=========================================${NC}\n"
 echo ""
-printf "  二进制路径:    ${BLUE}%s/ohosHttp${NC}\n" "$BIN_DIR"
+printf "  二进制路径:    ${BLUE}%s/ohos-server${NC}\n" "$BIN_DIR"
 printf "  网站目录:      ${BLUE}%s${NC}\n" "$WWW_DIR"
 printf "  配置文件:      ${BLUE}%s/config.toml${NC}\n" "$CONFIG_DIR"
 printf "  日志目录:      ${BLUE}%s${NC}\n" "$LOGS_DIR"
 echo ""
 printf "  快速启动示例:\n"
-printf "    ${YELLOW}ohosHttp -a 0.0.0.0:8089 -r %s${NC}\n" "$WWW_DIR"
-printf "    ${YELLOW}ohosHttp -c %s/config.toml${NC}\n" "$CONFIG_DIR"
+printf "    ${YELLOW}ohos-server -a 0.0.0.0:8089 -r %s${NC}\n" "$WWW_DIR"
+printf "    ${YELLOW}ohos-server -c %s/config.toml${NC}\n" "$CONFIG_DIR"
 echo ""
 printf "  守护进程模式:\n"
-printf "    ${YELLOW}ohosHttp -c %s/config.toml -d --pidfile /tmp/ohosHttp.pid${NC}\n" "$CONFIG_DIR"
+printf "    ${YELLOW}ohos-server -c %s/config.toml -d --pidfile /tmp/ohos-server.pid${NC}\n" "$CONFIG_DIR"
 echo ""
 printf "  ${GREEN}浏览器访问: http://localhost:8089${NC}\n"
 echo ""

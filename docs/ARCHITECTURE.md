@@ -1,8 +1,8 @@
-# ohosHttp 架构文档
+# ohos-server 架构文档
 
 ## 概述
 
-ohosHttp 采用 **Workerman 架构** — **进程 (Process) × 协程 (Coroutine)** 双层设计。
+ohos-server 采用 **Workerman 架构** — **进程 (Process) × 协程 (Coroutine)** 双层设计。
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -290,7 +290,7 @@ workers = 4                    # Worker 进程数（0 = CPU 核心数）
 
 ## 与标准 Workerman 的差异
 
-| 特性 | PHP Workerman | ohosHttp (Rust) |
+| 特性 | PHP Workerman | ohos-server (Rust) |
 |------|--------------|-----------------|
 | 运行时 | PHP + event extension | Tokio 单线程运行时 |
 | 协程 | Generator/yield | async/await + Future |
